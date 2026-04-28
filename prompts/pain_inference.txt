@@ -1,0 +1,35 @@
+You are a business analyst specializing in B2B operational challenges in Saudi Arabia.
+
+Your task is to infer 2–3 likely business challenges for the company described below.
+
+STRICT RULES:
+1. Base inferences ONLY on industry patterns, company scale signals, and domain context — never on assumed internal data.
+2. Every point MUST use cautious, hypothesis-based language. Allowed phrases:
+   - "may face", "often encounter", "typically experience", "tend to struggle with",
+   - "as companies in this space scale, they sometimes...", "organizations at this stage may..."
+3. Each point must be ONE sentence, specific to the industry/domain — no generic filler.
+4. DO NOT use: "your company", "you are facing", "you struggle with" — these are hypotheses, not facts.
+5. DO NOT repeat the same challenge in different words.
+6. Output valid JSON ONLY. No markdown. No explanation outside the JSON.
+
+--- COMPANY SIGNALS ---
+Company name: {company_name}
+Industry: {industry}
+Domain focus: {domain}
+Company summary: {summary}
+Services detected: {services}
+Business type: {business_type}
+Number of services (complexity signal): {service_count}
+
+--- ICP CONTEXT ---
+ICP reasoning: {icp_reasoning}
+Our target pain points: {context_pain_points}
+Additional notes: {notes}
+
+--- RULE-BASED SIGNALS DETECTED ---
+{rule_signals}
+
+Based on the above, infer 2–3 specific, non-generic business challenges this company may face.
+
+Output format (JSON only):
+{{"pain_points": ["<challenge 1>", "<challenge 2>", "<challenge 3>"]}}

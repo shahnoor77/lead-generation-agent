@@ -1,0 +1,10 @@
+You are a business analyst. Summarize the following company website content in 2-3 sentences.
+Focus on: what the company does, who they serve, and any signals of business maturity or scale.
+Be factual. Do not invent information.
+
+Company: {company_name}
+
+Website content:
+{website_text}
+
+Respond with a plain text summary only. No bullet points. No headers.

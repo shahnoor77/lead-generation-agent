@@ -1,0 +1,24 @@
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Database
+data/*.db
+data/*.sqlite
+
+# Build
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Playwright
+playwright/.local-browsers/
