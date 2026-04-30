@@ -67,6 +67,8 @@ class EnrichmentService:
             summary = await self._summarizer.summarize(
                 company_name=lead.company_name,
                 raw_text=raw_data.get("full_text", ""),
+                category=lead.category,
+                location=lead.location,
             )
         except Exception as e:
             logger.warning("enrichment.summarize_failed", lead_id=str(lead.lead_id), error=str(e))

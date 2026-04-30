@@ -14,6 +14,10 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas import EnrichedLead, BusinessContext, ICPRuleResult
 from app.utils.prompt_loader import load_prompt
+from app.modules.quality.output_quality_validator import (
+    validate_icp_reasoning,
+    icp_reasoning_fallback,
+)
 
 logger = get_logger(__name__)
 
@@ -44,8 +48,10 @@ class LLMScorer:
             services=", ".join(lead.services_detected) or "N/A",
             industries=", ".join(context.industries),
             domain=context.domain or "N/A",
+            our_services=", ".join(context.our_services) if context.our_services else "N/A",
             location=context.location,
             pain_points=", ".join(context.pain_points) if context.pain_points else "N/A",
+            target_pain_patterns=", ".join(context.target_pain_patterns) if context.target_pain_patterns else "N/A",
             value_proposition=context.value_proposition or "N/A",
             notes=context.notes or "N/A",
             rule_summary=self._format_rules(rule_results),
@@ -77,8 +83,23 @@ class LLMScorer:
         return LLMScorerResult(
             score=self._parse_score(data.get("score")),
             confidence=self._parse_confidence(data.get("confidence")),
-            reasoning=str(data.get("reasoning", "")) or "",
+            reasoning=self._validated_reasoning(
+                str(data.get("reasoning", "")) or "",
+                lead.company_name,
+            ),
         )
+
+    def _validated_reasoning(self, reasoning: str, company_name: str) -> str:
+        result = validate_icp_reasoning(reasoning, company_name)
+        if not result.passed:
+            logger.warning(
+                "icp.reasoning_quality_failed",
+                company=company_name,
+                issues=result.issues,
+            )
+            # Return original reasoning but log the issue — don't discard the score
+            return reasoning or icp_reasoning_fallback(company_name, 0)
+        return reasoning
 
     def _parse_score(self, value: object) -> int:
         """

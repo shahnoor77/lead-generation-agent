@@ -35,17 +35,19 @@ class RuleEngine:
             " ".join(lead.services_detected),
         ]).lower()
 
-        # Match against industries AND domain if provided
+        # Match against industries, domain, AND our_services for richer signal
         keywords = list(context.industries)
         if context.domain:
             keywords.append(context.domain)
+        if context.our_services:
+            keywords.extend(context.our_services)
 
         matched = [kw for kw in keywords if kw.lower() in text]
         passed = len(matched) > 0
         return ICPRuleResult(
             rule_name="industry_match",
             passed=passed,
-            reason=f"Matched keywords: {matched}" if passed else "No industry/domain keyword match",
+            reason=f"Matched keywords: {matched}" if passed else "No industry/domain/service keyword match",
         )
 
     def _rule_has_contact(self, lead: EnrichedLead) -> ICPRuleResult:

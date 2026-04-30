@@ -158,3 +158,23 @@ class OpsRepository:
             "draft": draft,
             "history": history,
         }
+
+    # ── Raw leads for a run (Discovered Leads page) ───────────────────────────
+
+    async def get_raw_leads_for_run(self, run_id: str) -> list[RawLeadRecord]:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(RawLeadRecord)
+                .where(RawLeadRecord.pipeline_run_id == run_id)
+                .order_by(RawLeadRecord.discovered_at)
+            )
+            return list(result.scalars().all())
+
+    async def get_enriched_for_run(self, run_id: str) -> list[EnrichedLeadRecord]:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(EnrichedLeadRecord)
+                .where(EnrichedLeadRecord.pipeline_run_id == run_id)
+                .order_by(EnrichedLeadRecord.enriched_at)
+            )
+            return list(result.scalars().all())

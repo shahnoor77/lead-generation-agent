@@ -30,6 +30,10 @@ from app.schemas import (
     FilterReason,
     LeadStatus,
 )
+from app.modules.qualification.buyer_seller_classifier import (
+    classify_rule_based,
+    BuyerSellerLabel,
+)
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -142,7 +146,22 @@ class FilterService:
             if any(excl.lower() in cat_lower for excl in context.excluded_categories):
                 return FilterReason.EXCLUDED_CATEGORY
 
-        # 4. Location presence check — validates against user-supplied location/country
+        # 4. Buyer/Seller classification — only filter CLEAR sellers (high confidence)
+        #    Only runs when our_services is provided (needs context to classify)
+        #    Uses rule-based only here — no LLM cost at filter stage
+        if context.our_services:
+            bs_result = classify_rule_based(lead, context)
+            if bs_result.classification == BuyerSellerLabel.SELLER and bs_result.seller_score >= 60:
+                logger.info(
+                    "filter.competitor_seller",
+                    lead_id=str(lead.lead_id),
+                    seller_score=bs_result.seller_score,
+                    signals=bs_result.seller_signals[:3],
+                    company=lead.company_name,
+                )
+                return FilterReason.COMPETITOR_SELLER
+
+        # 5. Location presence check — validates against user-supplied location/country
         signals = _location_signals(context)
         location_text = " ".join([
             lead.location or "",
