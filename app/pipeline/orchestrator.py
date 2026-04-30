@@ -17,6 +17,8 @@ from app.modules.filter import FilterService
 from app.modules.icp import ICPEvaluationService
 from app.modules.outreach import OutreachService
 from app.storage.repository import LeadRepository
+from app.services.lifecycle import LeadLifecycleService
+from app.schemas.lifecycle import LeadLifecycleStatus
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -44,6 +46,7 @@ class PipelineOrchestrator:
         self._icp = ICPEvaluationService()
         self._outreach = OutreachService()
         self._repo = LeadRepository()
+        self._lifecycle = LeadLifecycleService()
 
     async def run(self, context: BusinessContext, pipeline_run_id: str | None = None) -> PipelineResult:
         if pipeline_run_id:
@@ -66,6 +69,9 @@ class PipelineOrchestrator:
 
         for raw in raw_leads:
             await self._repo.save_raw(raw)
+            await self._lifecycle.set_pipeline_status(
+                str(raw.lead_id), raw.company_name, run_id, LeadLifecycleStatus.DISCOVERED
+            )
 
         # ── Stage 2: Enrichment ─────────────────────────────────────────────
         enriched_leads = []
@@ -78,6 +84,9 @@ class PipelineOrchestrator:
                 enriched_leads.append(enriched)
                 result.total_enriched += 1
                 await self._repo.save_enriched(enriched)
+                await self._lifecycle.set_pipeline_status(
+                    str(enriched.lead_id), enriched.company_name, run_id, LeadLifecycleStatus.ENRICHED
+                )
             except Exception as e:
                 result.errors.append(f"enrichment:{raw.lead_id}:{e}")
                 logger.error("pipeline.enrichment.error", error=str(e))
@@ -111,6 +120,10 @@ class PipelineOrchestrator:
                 if evaluated.decision == ICPDecision.REJECTED:
                     result.total_rejected_by_icp += 1
                     continue
+
+                await self._lifecycle.set_pipeline_status(
+                    str(evaluated.lead_id), evaluated.company_name, run_id, LeadLifecycleStatus.QUALIFIED
+                )
             except Exception as e:
                 result.errors.append(f"icp:{enriched.lead_id}:{e}")
                 logger.error("pipeline.icp.error", error=str(e))
@@ -122,6 +135,9 @@ class PipelineOrchestrator:
                 if draft:
                     result.outreach_drafts.append(draft)
                     await self._repo.save_outreach(draft)
+                    await self._lifecycle.set_pipeline_status(
+                        str(draft.lead_id), evaluated.company_name, run_id, LeadLifecycleStatus.OUTREACH_DRAFTED
+                    )
             except Exception as e:
                 result.errors.append(f"outreach:{enriched.lead_id}:{e}")
                 logger.error("pipeline.outreach.error", error=str(e))
