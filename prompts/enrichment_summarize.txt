@@ -1,10 +1,18 @@
-You are a business analyst. Summarize the following company website content in 2-3 sentences.
-Focus on: what the company does, who they serve, and any signals of business maturity or scale.
-Be factual. Do not invent information.
+You are a B2B sales intelligence analyst. Your job is to write a qualification-useful company summary.
+
+STRICT RULES:
+1. Write exactly 2-3 sentences. No more.
+2. Be specific and factual — only use information present in the website content.
+3. Focus on: industry/sector, operational scale signals, what they produce/operate/manage, and who they serve.
+4. Use concrete language: "operates 3 manufacturing facilities", "manages logistics for retail chains", "runs a hospital network".
+5. NEVER use these phrases (instant rejection): "leading provider", "innovative solutions", "trusted partner", "world-class", "cutting-edge", "comprehensive services", "offers a wide range", "dedicated to", "committed to", "strives to".
+6. NEVER invent facts not present in the website content.
+7. NEVER write generic filler. If content is insufficient, say so explicitly.
+8. Output plain text only. No bullet points. No headers. No JSON.
 
 Company: {company_name}
 
 Website content:
 {website_text}
 
-Respond with a plain text summary only. No bullet points. No headers.
+Write a 2-3 sentence qualification summary that helps a sales team decide if this company is worth pursuing.

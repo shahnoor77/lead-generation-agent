@@ -123,6 +123,24 @@ export interface SenderDetails {
   signature: string | null;
 }
 
+export interface DiscoveredLead {
+  lead_id: string;
+  company_name: string;
+  category: string | null;
+  location: string;
+  address: string | null;
+  phone: string | null;
+  website: string | null;
+  contact_email: string | null;
+  linkedin_url: string | null;
+  industry: string | null;
+  business_type: string | null;
+  enrichment_success: boolean;
+  icp_decision: string | null;
+  fit_score: number | null;
+  discovered_at: string | null;
+}
+
 export interface StartRunPayload {
   context: {
     industries: string[];
@@ -131,6 +149,8 @@ export interface StartRunPayload {
     domain?: string;
     area?: string;
     excluded_categories?: string[];
+    our_services?: string[];
+    target_pain_patterns?: string[];
     pain_points?: string[];
     value_proposition?: string;
     language_preference?: string;
@@ -154,6 +174,10 @@ export const api = {
     ),
 
   // Leads
+  getRunDiscovered: (runId: string) =>
+    request<{ pipeline_run_id: string; total: number; leads: DiscoveredLead[] }>(
+      `/api/v1/runs/${runId}/discovered`
+    ),
   getRunLeads: (runId: string) =>
     request<{ run_id: string; pipeline_complete: boolean; leads: LeadSummary[]; total: number }>(
       `/api/v1/runs/${runId}/leads`

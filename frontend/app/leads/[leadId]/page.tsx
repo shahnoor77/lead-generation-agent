@@ -71,8 +71,13 @@ export default function LeadDetailPage() {
         <div className="space-y-3 text-sm">
           {lead.intelligence.enrichment_summary && (
             <div>
-              <p className="text-xs font-medium text-gray-500 mb-1">Summary</p>
-              <p className="text-gray-700">{lead.intelligence.enrichment_summary}</p>
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-xs font-medium text-gray-500">Summary</p>
+                {lead.intelligence.enrichment_summary.includes("[auto-fallback]") && (
+                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Fallback</span>
+                )}
+              </div>
+              <p className="text-gray-700">{lead.intelligence.enrichment_summary.replace("[auto-fallback]", "").trim()}</p>
             </div>
           )}
           {lead.intelligence.inferred_pain_points.length > 0 && (
@@ -86,7 +91,14 @@ export default function LeadDetailPage() {
           {lead.intelligence.icp_reasoning && (
             <div>
               <p className="text-xs font-medium text-gray-500 mb-1">ICP Reasoning</p>
-              <p className="text-gray-700">{lead.intelligence.icp_reasoning}</p>
+              <p className="text-gray-700">{lead.intelligence.icp_reasoning.replace(/\[Buyer\/Seller:.*?\]/g, "").trim()}</p>
+              {/* Buyer/Seller classification extracted from reasoning */}
+              {lead.intelligence.icp_reasoning.includes("[Buyer/Seller:") && (
+                <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600">
+                  <span className="font-medium">Buyer/Seller: </span>
+                  {lead.intelligence.icp_reasoning.match(/\[Buyer\/Seller: ([^\]]+)\]/)?.[1] ?? ""}
+                </div>
+              )}
             </div>
           )}
           <div className="flex gap-4 text-xs text-gray-500">
@@ -102,7 +114,14 @@ export default function LeadDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Generated — read-only */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">AI Generated (read-only)</p>
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Generated</p>
+              {lead.generated_draft?.subject.startsWith("[DRAFT NEEDED]") ? (
+                <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Fallback</span>
+              ) : (
+                <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">AI</span>
+              )}
+            </div>
             {lead.generated_draft ? (
               <div className="bg-gray-50 border border-gray-200 rounded-md p-3 space-y-2 text-sm">
                 <p className="font-medium text-gray-800">{lead.generated_draft.subject}</p>

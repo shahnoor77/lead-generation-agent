@@ -20,6 +20,8 @@ export default function NewRunPage() {
     location: "",
     country: "",
     excluded_categories: "",
+    our_services: "",
+    target_pain_patterns: "",
     pain_points: "",
     value_proposition: "",
     notes: "",
@@ -51,6 +53,8 @@ export default function NewRunPage() {
           country: form.country || undefined,
           domain: form.domain || undefined,
           excluded_categories: splitCSV(form.excluded_categories),
+          our_services: splitCSV(form.our_services),
+          target_pain_patterns: splitCSV(form.target_pain_patterns),
           pain_points: splitCSV(form.pain_points),
           value_proposition: form.value_proposition || undefined,
           notes: form.notes || undefined,
@@ -117,12 +121,12 @@ export default function NewRunPage() {
           />
         </Field>
 
-        <Field label="Domain" hint="e.g. business transformation, ERP">
+        <Field label="Domain" hint="Sub-sector of TARGET companies — what THEY do (e.g. 'automobile parts', 'cold chain', 'FMCG'). NOT your services.">
           <input
             className={input}
             value={form.domain}
             onChange={(e) => set("domain", e.target.value)}
-            placeholder="business transformation"
+            placeholder="automobile parts, cold chain logistics, FMCG"
           />
         </Field>
 
@@ -151,6 +155,30 @@ export default function NewRunPage() {
             value={form.excluded_categories}
             onChange={(e) => set("excluded_categories", e.target.value)}
             placeholder="restaurant, clinic, school"
+          />
+        </Field>
+
+        <Field
+          label="Our Services"
+          hint="What WE provide — used for ICP scoring and outreach only, NOT for search queries. Comma-separated."
+        >
+          <input
+            className={input}
+            value={form.our_services}
+            onChange={(e) => set("our_services", e.target.value)}
+            placeholder="ERP consulting, process automation, AI workflow implementation"
+          />
+        </Field>
+
+        <Field
+          label="Target Pain Patterns"
+          hint="Observable signals of likely buyers. Comma-separated. Optional."
+        >
+          <input
+            className={input}
+            value={form.target_pain_patterns}
+            onChange={(e) => set("target_pain_patterns", e.target.value)}
+            placeholder="manual workflow bottlenecks, poor planning visibility"
           />
         </Field>
 

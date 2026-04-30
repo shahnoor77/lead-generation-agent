@@ -74,6 +74,7 @@ class FilterReason(str, Enum):
     ENRICHMENT_FAILED     = "ENRICHMENT_FAILED"
     EXCLUDED_CATEGORY     = "EXCLUDED_CATEGORY"
     OUTSIDE_TARGET_REGION = "OUTSIDE_TARGET_REGION"
+    COMPETITOR_SELLER     = "COMPETITOR_SELLER"   # Phase 1.5 Chunk 2
 
 
 class BusinessType(str, Enum):
@@ -135,7 +136,11 @@ class BusinessContext(BaseModel):
     )
     domain: Optional[str] = Field(
         default=None,
-        description="Business domain to narrow search (e.g. 'ERP', 'supply chain', 'HR tech')",
+        description=(
+            "Sub-sector of the TARGET companies (e.g. 'automobile parts', 'cold chain logistics', 'FMCG retail'). "
+            "Describes what THEY do in more detail. "
+            "Do NOT put your own services here — use our_services for that."
+        ),
     )
     area: Optional[str] = Field(
         default=None,
@@ -159,6 +164,26 @@ class BusinessContext(BaseModel):
         default=None,
         description="One-line value prop used in outreach drafts",
     )
+
+    # ── Intent-aware targeting (Phase 1.5) ────────────────────────────────────
+    our_services: list[str] = Field(
+        default_factory=list,
+        description=(
+            "What WE provide — used to generate high-intent discovery queries. "
+            "Separate from `domain` (what THEY do) and `value_proposition` (why they should care). "
+            "Examples: ['ERP consulting', 'process automation', 'AI workflow implementation']"
+        ),
+    )
+    target_pain_patterns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Observable signals of companies likely to need our services. "
+            "Used to sharpen discovery queries toward likely buyers. "
+            "Examples: ['manual workflow bottlenecks', 'poor planning visibility', "
+            "'inventory coordination issues']"
+        ),
+    )
+
     language_preference: OutreachLanguage = Field(
         default=OutreachLanguage.EN,
         description="Preferred outreach language. EN/AR for explicit, AUTO defaults to EN.",
@@ -168,7 +193,7 @@ class BusinessContext(BaseModel):
         description="Free-text notes passed to ICP evaluator and outreach generator",
     )
 
-    @field_validator("industries", "pain_points", mode="before")
+    @field_validator("industries", "pain_points", "our_services", "target_pain_patterns", mode="before")
     @classmethod
     def _strip_list_strings(cls, v: list) -> list:
         return [s.strip() for s in v if isinstance(s, str) and s.strip()]
