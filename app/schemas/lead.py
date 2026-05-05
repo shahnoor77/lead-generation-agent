@@ -193,6 +193,18 @@ class BusinessContext(BaseModel):
         description="Free-text notes passed to ICP evaluator and outreach generator",
     )
 
+    # ── Continuous run config (optional) ──────────────────────────────────────
+    continuous: bool = Field(
+        default=False,
+        description="If True, pipeline repeats automatically after each run completes. "
+                    "Stops when explicitly cancelled via DELETE /api/v1/leads/continuous/{config_id}.",
+    )
+    continuous_interval_minutes: int = Field(
+        default=60,
+        ge=15,
+        description="Minutes to wait between continuous pipeline runs. Minimum 15.",
+    )
+
     @field_validator("industries", "pain_points", "our_services", "target_pain_patterns", mode="before")
     @classmethod
     def _strip_list_strings(cls, v: list) -> list:

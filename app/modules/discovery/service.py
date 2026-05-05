@@ -3,16 +3,12 @@ Discovery Module
 ----------------
 Responsibility: Search Google Maps + Web for companies matching the BusinessContext.
 
-Flow (Phase 1.5):
+Flow:
   BusinessContext
-    → Opportunity Query Builder  (generates high-intent queries)
-    → GoogleMapsScraper          (Playwright, detail-click)
-    → WebSearchScraper           (httpx + BeautifulSoup)
-    → dedup
+    → Opportunity Query Builder  (generates high-intent queries with industry expansion)
+    → GoogleMapsScraper + WebSearchScraper
+    → Cross-run deduplication    (skip companies already in DB)
     → list[RawLead]
-
-The query builder replaces the old _build_query() function.
-Discovery modules are unchanged — they just receive better queries.
 
 Failure strategy:
 - Query builder failure → falls back to baseline queries (never blocks)
@@ -42,15 +38,14 @@ class DiscoveryService:
     ) -> list[RawLead]:
         leads: list[RawLead] = []
 
-        # ── Phase 1.5: Generate high-intent queries ────────────────────────────
+        # ── Generate high-intent queries (with industry expansion) ─────────────
         queries = await build_opportunity_queries(context)
-        logger.info("discovery.queries_generated", count=len(queries), queries=queries)
+        logger.info("discovery.queries_generated", count=len(queries))
 
         # ── Run each query against both sources ────────────────────────────────
         for query in queries:
             logger.info("discovery.search", query=query)
 
-            # Source 1: Google Maps (Playwright — detail-click for website)
             try:
                 maps_results = await self._maps_scraper.search(
                     query=query,
@@ -62,7 +57,6 @@ class DiscoveryService:
             except DiscoveryError:
                 logger.warning("discovery.maps.failed", query=query)
 
-            # Source 2: Google Web Search (httpx — supplementary)
             try:
                 web_results = await self._web_scraper.search(
                     query=query,
@@ -74,8 +68,7 @@ class DiscoveryService:
             except Exception as e:
                 logger.warning("discovery.web.failed", query=query, error=str(e))
 
-        # ── Coarse dedup by name+location ──────────────────────────────────────
-        # Filter Layer handles fine dedup (duplicate lead_id within a run)
+        # ── Within-run dedup by name+location ─────────────────────────────────
         seen: set[str] = set()
         unique: list[RawLead] = []
         for lead in leads:
@@ -83,6 +76,23 @@ class DiscoveryService:
             if key not in seen:
                 seen.add(key)
                 unique.append(lead)
+
+        # ── Cross-run dedup: skip companies already in DB ─────────────────────
+        try:
+            from app.storage.ops_repository import OpsRepository
+            repo = OpsRepository()
+            known_keys = await repo.get_known_company_keys(context.location)
+            before = len(unique)
+            unique = [
+                lead for lead in unique
+                if f"{lead.company_name.lower()}|{lead.location.lower()}" not in known_keys
+            ]
+            skipped = before - len(unique)
+            if skipped > 0:
+                logger.info("discovery.cross_run_dedup", skipped=skipped, remaining=len(unique))
+        except Exception as e:
+            # Cross-run dedup is best-effort — never block discovery
+            logger.warning("discovery.cross_run_dedup.failed", error=str(e))
 
         logger.info("discovery.complete", total_unique=len(unique))
         return unique

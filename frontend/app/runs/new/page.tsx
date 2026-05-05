@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ErrorMsg } from "@/components/ui/ErrorMsg";
@@ -26,7 +26,33 @@ export default function NewRunPage() {
     value_proposition: "",
     notes: "",
     language_preference: "EN",
+    continuous: false,
+    continuous_interval_minutes: 60,
   });
+
+  useEffect(() => {
+    // Restore last-saved config for this user
+    api.getSavedConfig().then((res) => {
+      if (!res.config) return;
+      const c = res.config as Record<string, unknown>;
+      setForm((f) => ({
+        ...f,
+        industries: Array.isArray(c.industries) ? (c.industries as string[]).join(", ") : f.industries,
+        domain: (c.domain as string) || f.domain,
+        location: (c.location as string) || f.location,
+        country: (c.country as string) || f.country,
+        excluded_categories: Array.isArray(c.excluded_categories) ? (c.excluded_categories as string[]).join(", ") : f.excluded_categories,
+        our_services: Array.isArray(c.our_services) ? (c.our_services as string[]).join(", ") : f.our_services,
+        target_pain_patterns: Array.isArray(c.target_pain_patterns) ? (c.target_pain_patterns as string[]).join(", ") : f.target_pain_patterns,
+        pain_points: Array.isArray(c.pain_points) ? (c.pain_points as string[]).join(", ") : f.pain_points,
+        value_proposition: (c.value_proposition as string) || f.value_proposition,
+        notes: (c.notes as string) || f.notes,
+        language_preference: (c.language_preference as string) || f.language_preference,
+        continuous: (c.continuous as boolean) ?? f.continuous,
+        continuous_interval_minutes: (c.continuous_interval_minutes as number) || f.continuous_interval_minutes,
+      }));
+    }).catch(() => {});
+  }, []);
 
   function set(k: keyof typeof form, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -59,6 +85,8 @@ export default function NewRunPage() {
           value_proposition: form.value_proposition || undefined,
           notes: form.notes || undefined,
           language_preference: form.language_preference,
+          continuous: form.continuous,
+          continuous_interval_minutes: form.continuous_interval_minutes,
         },
       });
 
@@ -220,6 +248,40 @@ export default function NewRunPage() {
             {LANG_OPTIONS.map((l) => <option key={l}>{l}</option>)}
           </select>
         </Field>
+
+        {/* Continuous run toggle */}
+        <div className="border border-gray-200 rounded-lg p-4 space-y-3 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Continuous Mode</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Automatically re-run the pipeline on a schedule. Duplicate companies are skipped.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, continuous: !f.continuous }))}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                form.continuous ? "bg-blue-600" : "bg-gray-300"
+              }`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                form.continuous ? "translate-x-6" : "translate-x-1"
+              }`} />
+            </button>
+          </div>
+          {form.continuous && (
+            <Field label="Interval (minutes)" hint="Minimum 15 minutes between runs">
+              <input
+                className={input}
+                type="number"
+                min={15}
+                value={form.continuous_interval_minutes}
+                onChange={(e) => setForm((f) => ({ ...f, continuous_interval_minutes: parseInt(e.target.value) || 60 }))}
+              />
+            </Field>
+          )}
+        </div>
 
         <button
           type="submit"

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # Primary model for structured JSON tasks (ICP scoring, outreach drafts)
     ollama_model: str = "qwen2.5-coder:14b"
     # Lighter model for summarization (faster, cheaper on resources)
-    ollama_summarize_model: str = "qwen2.5:14b"
+    ollama_summarize_model: str = "qwen2.5:1.5b"
 
     # Database — PostgreSQL
     # Format: postgresql+asyncpg://user:password@host:port/dbname
@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # Scraping
     scrape_timeout_seconds: int = 30
     maps_search_region: str = "SA"
+
+    # Auth — JWT
+    secret_key: str = "change-this-in-production-use-a-long-random-string"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24  # 24 hours
 
 
 settings = Settings()  # type: ignore[call-arg]

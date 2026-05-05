@@ -1,21 +1,16 @@
 """
-LLM-based outreach draft generator with output quality validation.
-Uses Ollama (local) via the OpenAI-compatible /v1 endpoint.
-Model: qwen2.5-coder:14b
-
-Validation runs after every LLM call.
-Falls back to a safe placeholder if output fails quality checks.
-Fallback drafts are tagged so operators know they need manual editing.
+LLM-based outreach draft generator with output quality validation and retry logic.
+Uses shared LLM client — handles Ollama server load gracefully.
 """
 
 from __future__ import annotations
 import json
-from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas import EnrichedLead, EvaluatedLead, BusinessContext, OutreachOutput, OutreachLanguage
 from app.utils.prompt_loader import load_prompt
+from app.utils.llm_client import llm_chat
 from app.modules.outreach.pain_inference import infer_pain_points
 from app.modules.quality.output_quality_validator import (
     validate_outreach,
@@ -23,12 +18,6 @@ from app.modules.quality.output_quality_validator import (
 )
 
 logger = get_logger(__name__)
-
-client = AsyncOpenAI(
-    base_url=f"{settings.ollama_base_url}/v1",
-    api_key="ollama",
-    timeout=120.0,
-)
 
 _FALLBACK_SUBJECT_PREFIX = "[DRAFT NEEDED] "
 
@@ -72,7 +61,7 @@ class OutreachGenerator:
         is_fallback = False
 
         try:
-            response = await client.chat.completions.create(
+            response = await llm_chat(
                 model=settings.ollama_model,
                 messages=[
                     {"role": "system", "content": "You are a JSON-only responder. Output valid JSON and nothing else."},

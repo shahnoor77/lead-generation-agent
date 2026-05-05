@@ -1,8 +1,14 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { getToken } = await import("@/lib/auth");
+  const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
     ...init,
   });
   if (!res.ok) {
@@ -155,13 +161,32 @@ export interface StartRunPayload {
     value_proposition?: string;
     language_preference?: string;
     notes?: string;
+    continuous?: boolean;
+    continuous_interval_minutes?: number;
   };
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
-  // Runs
+  // Auth
+  signup: (email: string, password: string) =>
+    request<{ user_id: number; email: string }>("/api/v1/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  login: async (email: string, password: string) => {
+    const form = new URLSearchParams({ username: email, password });
+    const res = await fetch(`${BASE}/api/v1/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    });
+    if (!res.ok) throw new Error("Invalid email or password");
+    return res.json() as Promise<{ access_token: string; user_id: number; email: string }>;
+  },
+  me: () => request<{ user_id: number; email: string }>("/api/v1/auth/me"),
+  getSavedConfig: () => request<{ config: Record<string, unknown> | null }>("/api/v1/leads/config"),
   getRuns: () => request<{ runs: PipelineRun[]; total: number }>("/api/v1/runs"),
   startRun: (payload: StartRunPayload) =>
     request<{ pipeline_run_id: string; status: string; message: string }>(
@@ -184,7 +209,10 @@ export const api = {
     ),
   getLeadDetail: (leadId: string) => request<LeadDetail>(`/api/v1/leads/${leadId}`),
 
-  // Lifecycle
+  stopContinuous: (configId: string) =>
+    request(`/api/v1/leads/continuous/${configId}`, { method: "DELETE" }),
+  listContinuous: () =>
+    request<{ active_continuous_runs: string[]; count: number }>("/api/v1/leads/continuous"),
   updateStatus: (leadId: string, status: string, notes?: string, updatedBy?: string) =>
     request(`/api/v1/leads/${leadId}/status`, {
       method: "PATCH",

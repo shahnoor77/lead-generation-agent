@@ -1,16 +1,13 @@
 """
 LLM-based website summarizer with output quality validation.
-Uses Ollama (local) via the OpenAI-compatible /v1 endpoint.
-Model: qwen2.5:14b
-
-Validation runs after every LLM call.
-Falls back to a safe placeholder if output fails quality checks.
+Uses shared LLM client with retry logic.
+Model: qwen2.5:1.5b — fast (2-5s), sufficient for 2-3 sentence summaries.
 """
 
-from openai import AsyncOpenAI
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.utils.prompt_loader import load_prompt
+from app.utils.llm_client import llm_chat
 from app.modules.quality.output_quality_validator import (
     validate_summary,
     summary_fallback,
@@ -18,13 +15,6 @@ from app.modules.quality.output_quality_validator import (
 
 logger = get_logger(__name__)
 
-client = AsyncOpenAI(
-    base_url=f"{settings.ollama_base_url}/v1",
-    api_key="ollama",
-    timeout=30.0,   # fail fast — fallback handles timeouts gracefully
-)
-
-# Metadata tag appended to fallback summaries so operators can identify them
 _FALLBACK_TAG = " [auto-fallback]"
 
 
@@ -46,7 +36,7 @@ class WebsiteSummarizer:
         )
 
         try:
-            response = await client.chat.completions.create(
+            response = await llm_chat(
                 model=settings.ollama_summarize_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,
@@ -54,17 +44,12 @@ class WebsiteSummarizer:
             )
             summary = (response.choices[0].message.content or "").strip()
         except Exception as e:
-            logger.warning("summarizer.llm_failed", company=company_name, error=str(e))
+            logger.warning("summarizer.llm_failed", company=company_name, error=str(e)[:120])
             return summary_fallback(company_name, category, location) + _FALLBACK_TAG
 
-        # Validate quality
         result = validate_summary(summary, company_name)
         if not result.passed:
-            logger.warning(
-                "summarizer.quality_failed",
-                company=company_name,
-                issues=result.issues,
-            )
+            logger.warning("summarizer.quality_failed", company=company_name, issues=result.issues)
             return summary_fallback(company_name, category, location) + _FALLBACK_TAG
 
         logger.debug("enrichment.summarized", company=company_name, chars=len(summary))

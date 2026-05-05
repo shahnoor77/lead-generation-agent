@@ -48,7 +48,7 @@ class PipelineOrchestrator:
         self._repo = LeadRepository()
         self._lifecycle = LeadLifecycleService()
 
-    async def run(self, context: BusinessContext, pipeline_run_id: str | None = None) -> PipelineResult:
+    async def run(self, context: BusinessContext, pipeline_run_id: str | None = None, user_id: int | None = None) -> PipelineResult:
         if pipeline_run_id:
             run_id = pipeline_run_id
             run_uuid = uuid.UUID(run_id)
@@ -144,7 +144,7 @@ class PipelineOrchestrator:
 
         # ── Persist run summary ─────────────────────────────────────────────
         structlog.contextvars.clear_contextvars()
-        await self._repo.save_pipeline_run(result, context, completed_at=datetime.utcnow())
+        await self._repo.save_pipeline_run(result, context, completed_at=datetime.utcnow(), user_id=user_id)
 
         logger.info(
             "pipeline.complete",

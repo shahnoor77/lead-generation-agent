@@ -20,19 +20,14 @@ The Discovery module iterates over these queries instead of building its own.
 
 from __future__ import annotations
 import json
-from openai import AsyncOpenAI
 
 from app.schemas import BusinessContext
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.utils.llm_client import llm_chat
+from app.modules.discovery.industry_expander import expand_industries
 
 logger = get_logger(__name__)
-
-client = AsyncOpenAI(
-    base_url=f"{settings.ollama_base_url}/v1",
-    api_key="ollama",
-    timeout=60.0,
-)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -42,28 +37,20 @@ client = AsyncOpenAI(
 def build_rule_based_queries(context: BusinessContext) -> list[str]:
     """
     Generates high-intent queries using context signals without LLM.
-
-    CRITICAL RULE: our_services (what WE sell) must NEVER appear in search queries.
-    Searching for "manufacturing AI automation companies" finds AI companies, not manufacturers.
-    our_services is used for ICP scoring and outreach — not for discovery.
-
-    Strategy per industry:
-    - Variant 1: industry + pain pattern (if provided) — targets companies showing buying signals
-    - Variant 2: industry + domain baseline (always) — broad industry search
+    Expands industries to include related sub-sectors automatically.
     """
     queries: list[str] = []
     location_suffix = _location_suffix(context)
 
-    for industry in context.industries:
-        # Variant 1: pain-pattern query — targets companies showing operational signals
-        # Uses target_pain_patterns (what THEY experience), NOT our_services (what WE sell)
+    # Expand industries to include related sub-sectors
+    expanded_industries = expand_industries(context.industries)
+
+    for industry in expanded_industries:
         if context.target_pain_patterns:
             for pattern in context.target_pain_patterns[:2]:
                 q = f"{industry} businesses with {pattern}{location_suffix}"
                 queries.append(q)
 
-        # Variant 2: domain-enriched baseline (always included)
-        # domain = what THEY do (e.g. "automobile", "supply chain") — safe to include
         baseline = _build_baseline(industry, context, location_suffix)
         queries.append(baseline)
 
@@ -75,7 +62,7 @@ def build_rule_based_queries(context: BusinessContext) -> list[str]:
             seen.add(q)
             unique.append(q)
 
-    logger.info("query_builder.rule_based", count=len(unique), queries=unique)
+    logger.info("query_builder.rule_based", count=len(unique), original_industries=context.industries)
     return unique
 
 
@@ -152,7 +139,7 @@ async def build_llm_queries(context: BusinessContext, count: int = 6) -> list[st
             notes=context.notes or "N/A",
         )
 
-        response = await client.chat.completions.create(
+        response = await llm_chat(
             model=settings.ollama_model,
             messages=[
                 {"role": "system", "content": "You are a JSON-only responder. Output valid JSON and nothing else."},

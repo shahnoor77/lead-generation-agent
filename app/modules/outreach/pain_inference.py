@@ -14,20 +14,14 @@ Design decisions:
 
 from __future__ import annotations
 import json
-from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas import EnrichedLead, EvaluatedLead, BusinessContext
 from app.utils.prompt_loader import load_prompt
+from app.utils.llm_client import llm_chat
 
 logger = get_logger(__name__)
-
-client = AsyncOpenAI(
-    base_url=f"{settings.ollama_base_url}/v1",
-    api_key="ollama",
-    timeout=120.0,
-)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Rule-based signal derivation (free, no LLM)
@@ -157,17 +151,14 @@ async def infer_pain_points(
             rule_signals="\n".join(f"- {s}" for s in rule_signals) if rule_signals else "None detected.",
         )
 
-        response = await client.chat.completions.create(
+        response = await llm_chat(
             model=settings.ollama_model,
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a JSON-only responder. Output valid JSON and nothing else.",
-                },
+                {"role": "system", "content": "You are a JSON-only responder. Output valid JSON and nothing else."},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=300,
-            temperature=0.3,  # slightly creative but grounded
+            temperature=0.3,
         )
 
         raw = response.choices[0].message.content or "{}"

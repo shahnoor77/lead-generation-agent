@@ -178,3 +178,19 @@ class OpsRepository:
                 .order_by(EnrichedLeadRecord.enriched_at)
             )
             return list(result.scalars().all())
+
+    # ── Cross-run deduplication ───────────────────────────────────────────────
+
+    async def get_known_company_keys(self, location: str) -> set[str]:
+        """
+        Returns a set of 'company_name|location' keys already in the DB.
+        Used to skip companies already discovered in previous runs.
+        Normalised to lowercase for case-insensitive matching.
+        """
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(RawLeadRecord.company_name, RawLeadRecord.location)
+                .where(RawLeadRecord.location.ilike(f"%{location}%"))
+            )
+            rows = result.all()
+        return {f"{r[0].lower()}|{r[1].lower()}" for r in rows}

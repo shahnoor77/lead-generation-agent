@@ -28,18 +28,12 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from openai import AsyncOpenAI
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas import EnrichedLead, BusinessContext
+from app.utils.llm_client import llm_chat
 
 logger = get_logger(__name__)
-
-client = AsyncOpenAI(
-    base_url=f"{settings.ollama_base_url}/v1",
-    api_key="ollama",
-    timeout=60.0,
-)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -295,7 +289,7 @@ async def classify_llm_tiebreaker(
             services=", ".join(lead.services_detected[:5]) if lead.services_detected else "N/A",
         )
 
-        response = await client.chat.completions.create(
+        response = await llm_chat(
             model=settings.ollama_model,
             messages=[
                 {"role": "system", "content": "You are a JSON-only responder."},

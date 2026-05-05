@@ -1,31 +1,23 @@
 """
-LLM-based ICP scorer — adds nuanced reasoning on top of rule results.
-Uses Ollama (local) via the OpenAI-compatible /v1 endpoint.
-Model: qwen2.5-coder:14b — strong at structured JSON output.
-Only called when rule_score >= 45 (enforced by ICPEvaluationService).
+LLM-based ICP scorer with retry logic.
+Uses shared LLM client — handles Ollama server load gracefully.
 """
 
 from __future__ import annotations
 import json
 from dataclasses import dataclass
-from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas import EnrichedLead, BusinessContext, ICPRuleResult
 from app.utils.prompt_loader import load_prompt
+from app.utils.llm_client import llm_chat
 from app.modules.quality.output_quality_validator import (
     validate_icp_reasoning,
     icp_reasoning_fallback,
 )
 
 logger = get_logger(__name__)
-
-client = AsyncOpenAI(
-    base_url=f"{settings.ollama_base_url}/v1",
-    api_key="ollama",
-    timeout=120.0,
-)
 
 
 @dataclass
@@ -57,13 +49,10 @@ class LLMScorer:
             rule_summary=self._format_rules(rule_results),
         )
 
-        response = await client.chat.completions.create(
+        response = await llm_chat(
             model=settings.ollama_model,
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a JSON-only responder. Output valid JSON and nothing else.",
-                },
+                {"role": "system", "content": "You are a JSON-only responder. Output valid JSON and nothing else."},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=200,

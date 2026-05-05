@@ -35,11 +35,12 @@ logger = get_logger(__name__)
 
 class LeadRepository:
 
-    async def save_pipeline_run(self, result, context, completed_at: datetime | None = None) -> None:
+    async def save_pipeline_run(self, result, context, completed_at=None, user_id: int | None = None) -> None:
         try:
             async with AsyncSessionLocal() as session:
                 record = PipelineRunRecord(
                     id=result.pipeline_run_id,
+                    user_id=user_id,
                     location=context.location,
                     industries=", ".join(context.industries),
                     domain=context.domain,

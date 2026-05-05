@@ -17,6 +17,7 @@ def _utcnow() -> datetime:
 class PipelineRunRecord(SQLModel, table=True):
     __tablename__ = "pipeline_runs"
     id: str = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)   # owner
     location: str
     industries: str
     domain: Optional[str] = None
@@ -212,3 +213,43 @@ class FinalizedDraftRecord(SQLModel, table=True):
     approval_status: str = "PENDING_REVIEW"      # "PENDING_REVIEW" | "APPROVED"
     approved_by: Optional[str] = None
     approved_at: Optional[datetime] = None
+
+
+# ── Auth + User Management ────────────────────────────────────────────────────
+
+class UserRecord(SQLModel, table=True):
+    """Operator accounts. Passwords stored as bcrypt hashes."""
+    __tablename__ = "users"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    hashed_password: str
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class UserLeadConfigRecord(SQLModel, table=True):
+    """
+    Persisted lead generation configuration per user.
+    Saved automatically when a run is started.
+    Restored when the user opens the New Run form.
+    """
+    __tablename__ = "user_lead_configs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    industries: str = Field(default="[]")           # JSON array
+    location: str = ""
+    country: Optional[str] = None
+    domain: Optional[str] = None
+    area: Optional[str] = None
+    excluded_categories: str = Field(default="[]")
+    our_services: str = Field(default="[]")
+    target_pain_patterns: str = Field(default="[]")
+    pain_points: str = Field(default="[]")
+    value_proposition: Optional[str] = None
+    language_preference: str = "EN"
+    notes: Optional[str] = None
+    continuous: bool = False
+    continuous_interval_minutes: int = 60
+    updated_at: datetime = Field(default_factory=_utcnow)
