@@ -1,7 +1,7 @@
 """
 Auth Service — JWT-based authentication for operators.
 
-- Passwords hashed with bcrypt (passlib)
+- Passwords hashed with bcrypt (direct, no passlib)
 - Tokens signed with HS256 (python-jose)
 - 24-hour token expiry by default
 """
@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -24,18 +24,20 @@ from sqlmodel import select
 
 logger = get_logger(__name__)
 
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 
 # ── Password helpers ──────────────────────────────────────────────────────────
 
 def hash_password(plain: str) -> str:
-    return _pwd.hash(plain[:72])
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd.verify(plain[:72], hashed)
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except Exception:
+        return False
 
 
 # ── Token helpers ─────────────────────────────────────────────────────────────

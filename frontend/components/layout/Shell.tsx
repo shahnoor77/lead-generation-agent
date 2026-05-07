@@ -7,6 +7,8 @@ import { getToken, clearToken, isLoggedIn } from "@/lib/auth";
 const nav = [
   { href: "/runs",     label: "Runs" },
   { href: "/runs/new", label: "New Run" },
+  { href: "/outreach", label: "Outreach" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

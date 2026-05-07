@@ -32,8 +32,8 @@ class OperationsService:
 
     # ── All pipeline runs ─────────────────────────────────────────────────────
 
-    async def get_all_runs(self) -> PipelineRunsResponse:
-        runs = await _repo.get_all_runs()
+    async def get_all_runs(self, user_id: int | None = None) -> PipelineRunsResponse:
+        runs = await _repo.get_all_runs(user_id=user_id)
         summaries = []
         for run in runs:
             counts = await _repo.get_status_counts_for_run(run.id)
@@ -67,8 +67,8 @@ class OperationsService:
 
     # ── Leads for a run ───────────────────────────────────────────────────────
 
-    async def get_run_leads(self, run_id: str) -> RunLeadsResponse:
-        run = await _repo.get_run(run_id)
+    async def get_run_leads(self, run_id: str, user_id: int | None = None) -> RunLeadsResponse:
+        run = await _repo.get_run(run_id, user_id=user_id)
         if run is None:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -97,12 +97,17 @@ class OperationsService:
 
     # ── Single lead detail ────────────────────────────────────────────────────
 
-    async def get_lead_detail(self, lead_id: str) -> LeadDetailResponse:
+    async def get_lead_detail(self, lead_id: str, user_id: int | None = None) -> LeadDetailResponse:
         data = await _repo.get_lead_detail(lead_id)
         if data is None:
             raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
 
         ev = data["evaluated"]
+        # Enforce ownership — check the run belongs to this user
+        if user_id is not None:
+            run = await _repo.get_run(ev.pipeline_run_id, user_id=user_id)
+            if run is None:
+                raise HTTPException(status_code=403, detail="Access denied")
         raw = data["raw"]
         enriched = data["enriched"]
         lifecycle = data["lifecycle"]

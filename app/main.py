@@ -7,6 +7,8 @@ from app.api.routes import lifecycle
 from app.api.routes import finalization
 from app.api.routes import operations
 from app.api.routes import auth
+from app.api.routes import settings as settings_router
+from app.api.routes import outreach_agent
 from app.core.logging import setup_logging
 from app.storage.database import init_db
 
@@ -39,3 +41,5 @@ app.include_router(leads.router, prefix="/api/v1", tags=["leads"])
 app.include_router(lifecycle.router, prefix="/api/v1", tags=["lifecycle"])
 app.include_router(finalization.router, prefix="/api/v1", tags=["finalization"])
 app.include_router(operations.router, prefix="/api/v1", tags=["operations"])
+app.include_router(settings_router.router, prefix="/api/v1", tags=["settings"])
+app.include_router(outreach_agent.router, prefix="/api/v1", tags=["outreach-agent"])

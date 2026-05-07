@@ -253,3 +253,110 @@ class UserLeadConfigRecord(SQLModel, table=True):
     continuous: bool = False
     continuous_interval_minutes: int = 60
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+# ── User Settings (ICP + Outreach + AI Agent) ─────────────────────────────────
+
+class UserSettingsRecord(SQLModel, table=True):
+    """
+    Persistent per-user configuration for ICP rules, outreach, and AI agent.
+    One row per user — upserted on every save.
+    """
+    __tablename__ = "user_settings"
+
+    user_id: int = Field(primary_key=True)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+    # ── ICP Settings ──────────────────────────────────────────────────────────
+    icp_decision_maker_titles: str = Field(
+        default='["CEO", "COO", "GM", "Owner", "Managing Director", "Operations Director"]'
+    )                                           # JSON array
+    icp_target_industries: str = Field(
+        default='["manufacturing", "logistics", "construction", "retail", "healthcare"]'
+    )                                           # JSON array
+    icp_ownership_types: str = Field(
+        default='["Private", "Family-owned", "SME", "Enterprise"]'
+    )                                           # JSON array
+    icp_revenue_min: Optional[int] = None       # USD
+    icp_revenue_max: Optional[int] = None       # USD
+    icp_growth_stage: Optional[str] = None      # e.g. "Scaling up to $200M"
+    icp_primary_geography: Optional[str] = None # e.g. "Saudi Arabia, UAE, Pakistan"
+    icp_min_fit_score: int = 45                 # leads below this are REJECTED
+    icp_require_website: bool = False           # if True, filter leads without website
+    icp_require_contact: bool = False           # if True, filter leads without email/phone
+
+    # ── Outreach Settings (stub — Outreach Agent built later) ─────────────────
+    outreach_sender_domain: Optional[str] = None
+    outreach_daily_send_limit: int = 50
+    outreach_send_window_start: str = "09:00"   # HH:MM UTC
+    outreach_send_window_end: str = "17:00"
+    outreach_language_default: str = "EN"
+
+    # ── AI Agent Settings ─────────────────────────────────────────────────────
+    ai_model: str = "qwen2.5-coder:14b"
+    ai_agent_mode: str = "semi-autonomous"      # semi-autonomous | manual
+    ai_email_tone: str = "formal-business"      # executive-direct | formal-business | problem-specific
+    ai_hypothesis_depth: str = "concise"        # concise (2-3 sentences) | standard | detailed
+    ai_summary_depth: str = "standard"          # concise | standard | detailed
+
+
+# ── Outreach Agent ────────────────────────────────────────────────────────────
+
+class SenderEmailAccountRecord(SQLModel, table=True):
+    """
+    SMTP credentials for a sender email account.
+    One user can have multiple sender accounts (different domains).
+    Passwords stored encrypted — never in plaintext.
+    """
+    __tablename__ = "sender_email_accounts"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    email_address: str = Field(index=True)
+    display_name: str = ""                      # "Ali Hassan — XYZ Consulting"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password_encrypted: str = ""           # encrypted with SECRET_KEY
+    use_tls: bool = True
+    is_active: bool = True
+    daily_limit: int = 50
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class OutreachSentRecord(SQLModel, table=True):
+    """
+    Append-only log of every email sent.
+    Prevents duplicate sends — checked before every send attempt.
+    """
+    __tablename__ = "outreach_sent"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    lead_id: str = Field(index=True)
+    finalized_draft_id: str                     # lead_id of FinalizedDraftRecord
+    sender_email: str
+    receiver_email: str
+    subject: str
+    sent_at: datetime = Field(default_factory=_utcnow)
+    status: str = "sent"                        # sent | failed | bounced
+    error_message: Optional[str] = None
+
+
+class OutreachJobRecord(SQLModel, table=True):
+    """
+    Tracks active outreach jobs per user.
+    A job runs continuously until stopped or config changes.
+    """
+    __tablename__ = "outreach_jobs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True)  # one active job per user
+    is_active: bool = True
+    sender_account_id: int
+    industry_filter: Optional[str] = None      # JSON array — filter by industry
+    location_filter: Optional[str] = None      # filter by location
+    daily_sent_today: int = 0
+    last_sent_date: Optional[str] = None        # YYYY-MM-DD
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

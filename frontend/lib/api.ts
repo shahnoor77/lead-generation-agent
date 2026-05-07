@@ -186,6 +186,9 @@ export const api = {
     return res.json() as Promise<{ access_token: string; user_id: number; email: string }>;
   },
   me: () => request<{ user_id: number; email: string }>("/api/v1/auth/me"),
+  getSettings: () => request<Record<string, unknown>>("/api/v1/settings"),
+  saveSettings: (settings: Record<string, unknown>) =>
+    request("/api/v1/settings", { method: "PUT", body: JSON.stringify(settings) }),
   getSavedConfig: () => request<{ config: Record<string, unknown> | null }>("/api/v1/leads/config"),
   getRuns: () => request<{ runs: PipelineRun[]; total: number }>("/api/v1/runs"),
   startRun: (payload: StartRunPayload) =>
@@ -213,6 +216,20 @@ export const api = {
     request(`/api/v1/leads/continuous/${configId}`, { method: "DELETE" }),
   listContinuous: () =>
     request<{ active_continuous_runs: string[]; count: number }>("/api/v1/leads/continuous"),
+
+  // Outreach Agent
+  getOutreachAccounts: () => request("/api/v1/outreach/accounts"),
+  addOutreachAccount: (payload: object) =>
+    request("/api/v1/outreach/accounts", { method: "POST", body: JSON.stringify(payload) }),
+  removeOutreachAccount: (id: number) =>
+    request(`/api/v1/outreach/accounts/${id}`, { method: "DELETE" }),
+  startOutreachJob: (intervalMinutes: number) =>
+    request("/api/v1/outreach/jobs/start", { method: "POST", body: JSON.stringify({ interval_minutes: intervalMinutes }) }),
+  stopOutreachJob: () =>
+    request("/api/v1/outreach/jobs/stop", { method: "DELETE" }),
+  getOutreachJobStatus: () => request("/api/v1/outreach/jobs/status"),
+  runOutreachNow: () => request("/api/v1/outreach/run-now", { method: "POST" }),
+  getOutreachSentLog: (limit = 100) => request(`/api/v1/outreach/sent?limit=${limit}`),
   updateStatus: (leadId: string, status: string, notes?: string, updatedBy?: string) =>
     request(`/api/v1/leads/${leadId}/status`, {
       method: "PATCH",

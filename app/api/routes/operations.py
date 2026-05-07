@@ -6,7 +6,7 @@ GET /api/v1/runs/{run_id}/leads         All leads for a run (Kanban view)
 GET /api/v1/leads/{lead_id}             Full lead detail (operator working screen)
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.schemas.operations import (
     PipelineRunsResponse,
     RunLeadsResponse,
@@ -14,62 +14,51 @@ from app.schemas.operations import (
 )
 from app.services.operations import OperationsService
 from app.storage.database import AsyncSessionLocal
+from app.storage.models import UserRecord
+from app.api.dependencies import get_current_user
 
 router = APIRouter()
 _svc = OperationsService()
 
 
 @router.get("/runs", response_model=PipelineRunsResponse)
-async def get_all_runs() -> PipelineRunsResponse:
-    """
-    List all pipeline runs, newest first.
-    Each run includes a status summary showing how many leads
-    are at each lifecycle stage.
-    """
-    return await _svc.get_all_runs()
+async def get_all_runs(
+    current_user: UserRecord = Depends(get_current_user),
+) -> PipelineRunsResponse:
+    """List all pipeline runs for the current user, newest first."""
+    return await _svc.get_all_runs(user_id=current_user.id)
 
 
 @router.get("/runs/{run_id}/leads", response_model=RunLeadsResponse)
-async def get_run_leads(run_id: str) -> RunLeadsResponse:
-    """
-    Get all evaluated leads for a pipeline run.
-    Returns lead summaries sorted by fit_score descending.
-    Includes current lifecycle status and approval status per lead.
-    Returns 404 if run_id does not exist.
-    """
-    return await _svc.get_run_leads(run_id)
+async def get_run_leads(
+    run_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+) -> RunLeadsResponse:
+    """Get all evaluated leads for a run owned by the current user."""
+    return await _svc.get_run_leads(run_id, user_id=current_user.id)
 
 
 @router.get("/leads/{lead_id}", response_model=LeadDetailResponse)
-async def get_lead_detail(lead_id: str) -> LeadDetailResponse:
-    """
-    Full operator view for a single lead.
-
-    Returns:
-    - Company info (name, website, location, phone, address, category)
-    - Intelligence (enrichment summary, pain points, ICP scores, reasoning)
-    - Generated draft (AI-produced, read-only)
-    - Final draft (human-edited, with receiver/sender details)
-    - Current lifecycle status
-    - Full status history with timestamps and notes
-
-    Returns 404 if lead_id does not exist.
-    """
-    return await _svc.get_lead_detail(lead_id)
+async def get_lead_detail(
+    lead_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+) -> LeadDetailResponse:
+    """Full operator view for a single lead (must belong to current user's run)."""
+    return await _svc.get_lead_detail(lead_id, user_id=current_user.id)
 
 
 @router.get("/runs/{run_id}/discovered")
-async def get_run_discovered(run_id: str) -> dict:
-    """
-    All raw + enriched leads discovered in a run.
-    Returns: company name, website, phone, email, LinkedIn, address, category, industry.
-    """
+async def get_run_discovered(
+    run_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+) -> dict:
+    """All raw + enriched leads discovered in a run (current user only)."""
     from app.storage.ops_repository import OpsRepository
     from app.storage.models import EvaluatedLeadRecord
     from sqlmodel import select
 
     repo = OpsRepository()
-    run = await repo.get_run(run_id)
+    run = await repo.get_run(run_id, user_id=current_user.id)
     if run is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")

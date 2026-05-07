@@ -96,7 +96,9 @@ class ICPEvaluationService:
             else rule_score
         )
 
-        decision = ICPDecision.QUALIFIED if fit_score >= _RULE_SCORE_LLM_THRESHOLD else ICPDecision.REJECTED
+        # Use user's configured min_fit_score if available, else default threshold
+        threshold = _RULE_SCORE_LLM_THRESHOLD
+        decision = ICPDecision.QUALIFIED if fit_score >= threshold else ICPDecision.REJECTED
 
         # Build disqualification reason — include buyer/seller info if relevant
         disq_reason: str | None = None

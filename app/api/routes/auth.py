@@ -17,7 +17,10 @@ from app.storage.models import UserRecord
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_PASSWORD_RE = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&_\-#])[A-Za-z\d@$!%*?&_\-#]{8,}$")
+_PASSWORD_RE = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()\-_=+\[\]{};:',.<>?/\\|`~])"
+    r"[A-Za-z\d!@#$%^&*()\-_=+\[\]{};:',.<>?/\\|`~]{8,}$"
+)
 
 
 class SignupRequest(BaseModel):
@@ -30,7 +33,7 @@ class SignupRequest(BaseModel):
         if not _PASSWORD_RE.match(v):
             raise ValueError(
                 "Password must be at least 8 characters and include "
-                "uppercase, lowercase, digit, and special character (@$!%*?&_-#)"
+                "uppercase, lowercase, a digit, and a special character"
             )
         return v
 

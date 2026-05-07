@@ -28,16 +28,23 @@ class OpsRepository:
 
     # ── Pipeline Runs ─────────────────────────────────────────────────────────
 
-    async def get_all_runs(self) -> list[PipelineRunRecord]:
+    async def get_all_runs(self, user_id: int | None = None) -> list[PipelineRunRecord]:
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(PipelineRunRecord).order_by(PipelineRunRecord.started_at.desc())
-            )
+            stmt = select(PipelineRunRecord).order_by(PipelineRunRecord.started_at.desc())
+            if user_id is not None:
+                stmt = stmt.where(PipelineRunRecord.user_id == user_id)
+            result = await session.execute(stmt)
             return list(result.scalars().all())
 
-    async def get_run(self, run_id: str) -> Optional[PipelineRunRecord]:
+    async def get_run(self, run_id: str, user_id: int | None = None) -> Optional[PipelineRunRecord]:
         async with AsyncSessionLocal() as session:
-            return await session.get(PipelineRunRecord, run_id)
+            record = await session.get(PipelineRunRecord, run_id)
+            if record is None:
+                return None
+            # If user_id provided, enforce ownership
+            if user_id is not None and record.user_id is not None and record.user_id != user_id:
+                return None
+            return record
 
     # ── Leads for a run ───────────────────────────────────────────────────────
 
