@@ -2,16 +2,14 @@
 Outreach Generation Module
 --------------------------
 Responsibility: Generate a culturally-aware, personalized outreach draft.
-Input:  EnrichedLead + EvaluatedLead + BusinessContext
+Input:  EnrichedLead + EvaluatedLead + BusinessContext + optional user_id
 Output: OutreachOutput
 
 Rules:
 - Only called for ICPDecision.QUALIFIED leads
 - approved is always False — human must review before any send
 - Language follows context.language_preference
-
-Failure strategy:
-- LLM failure → raise OutreachGenerationError (caller decides to skip or retry)
+- user_id passed to generator for model + tone override
 """
 
 from app.schemas import EnrichedLead, EvaluatedLead, BusinessContext, OutreachOutput, ICPDecision
@@ -31,15 +29,19 @@ class OutreachService:
         enriched: EnrichedLead,
         evaluated: EvaluatedLead,
         context: BusinessContext,
+        user_id: int | None = None,
     ) -> OutreachOutput | None:
         if evaluated.decision == ICPDecision.REJECTED:
             logger.info("outreach.skipped", lead_id=str(evaluated.lead_id), reason="icp_rejected")
             return None
 
-        logger.info("outreach.generate.start", lead_id=str(evaluated.lead_id), decision=evaluated.decision.value)
+        logger.info("outreach.generate.start",
+                    lead_id=str(evaluated.lead_id), decision=evaluated.decision.value)
 
         try:
-            output = await self._generator.draft(enriched, evaluated, context)
+            output = await self._generator.draft(
+                enriched, evaluated, context, user_id=user_id
+            )
             logger.info(
                 "outreach.generate.done",
                 lead_id=str(evaluated.lead_id),

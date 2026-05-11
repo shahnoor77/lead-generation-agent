@@ -63,7 +63,7 @@ class PipelineOrchestrator:
         logger.info("pipeline.start", location=context.location, industries=context.industries)
 
         # ── Stage 1: Discovery ──────────────────────────────────────────────
-        raw_leads = await self._discovery.discover(context, pipeline_run_id=run_uuid)
+        raw_leads = await self._discovery.discover(context, pipeline_run_id=run_uuid, user_id=user_id)
         result.total_discovered = len(raw_leads)
         logger.info("pipeline.discovery.done", count=result.total_discovered)
 
@@ -131,7 +131,7 @@ class PipelineOrchestrator:
 
             # Stage 5: Outreach Generation (QUALIFIED only)
             try:
-                draft = await self._outreach.generate(enriched, evaluated, context)
+                draft = await self._outreach.generate(enriched, evaluated, context, user_id=user_id)
                 if draft:
                     result.outreach_drafts.append(draft)
                     await self._repo.save_outreach(draft)

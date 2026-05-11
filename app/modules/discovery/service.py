@@ -35,11 +35,12 @@ class DiscoveryService:
         self,
         context: BusinessContext,
         pipeline_run_id: uuid.UUID | None = None,
+        user_id: int | None = None,
     ) -> list[RawLead]:
         leads: list[RawLead] = []
 
         # ── Generate high-intent queries (with industry expansion) ─────────────
-        queries = await build_opportunity_queries(context)
+        queries = await build_opportunity_queries(context, user_id=user_id)
         logger.info("discovery.queries_generated", count=len(queries))
 
         # ── Run each query against both sources ────────────────────────────────
