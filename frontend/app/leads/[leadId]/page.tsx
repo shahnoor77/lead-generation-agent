@@ -22,7 +22,12 @@ export default function LeadDetailPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(reload, [leadId]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      reload();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [leadId]);
 
   if (loading) return <Spinner />;
   if (error) return <ErrorMsg message={error} />;
