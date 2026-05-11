@@ -161,12 +161,52 @@ export default function SettingsPage() {
             <input className={inp} value={settings.ai_agent.model}
               onChange={(e) => setAI("model", e.target.value)} placeholder="qwen2.5-coder:14b" />
           </Field>
-          <Field label="Agent Mode">
-            <select className={inp} value={settings.ai_agent.agent_mode}
-              onChange={(e) => setAI("agent_mode", e.target.value)}>
-              {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </Field>
+
+          {/* Workflow Mode — visual card selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Workflow Mode</label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                {
+                  value: "semi-autonomous",
+                  title: "Semi-Autonomous",
+                  icon: "✋",
+                  description: "Pipeline stops after draft generation. You review and edit each email, manually approve, then trigger send per industry.",
+                  badge: "Human in the loop",
+                  badgeColor: "bg-yellow-100 text-yellow-700",
+                },
+                {
+                  value: "autonomous",
+                  title: "Autonomous",
+                  icon: "⚡",
+                  description: "Pipeline runs end-to-end. Emails are generated with higher precision settings, auto-approved, and sent immediately.",
+                  badge: "Fully automated",
+                  badgeColor: "bg-green-100 text-green-700",
+                },
+              ].map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => setAI("agent_mode", mode.value)}
+                  className={`text-left p-4 rounded-lg border-2 transition-colors ${
+                    settings.ai_agent.agent_mode === mode.value
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-200 hover:border-gray-300 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-lg">{mode.icon}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${mode.badgeColor}`}>
+                      {mode.badge}
+                    </span>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-900">{mode.title}</p>
+                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">{mode.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <Field label="Email Tone">
             <select className={inp} value={settings.ai_agent.email_tone}
               onChange={(e) => setAI("email_tone", e.target.value)}>

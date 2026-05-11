@@ -112,7 +112,7 @@ export default function LeadDetailPage() {
       {/* S3 — Draft Review */}
       <Section title="Draft Review">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Generated — read-only */}
+          {/* Generated — always read-only */}
           <div>
             <div className="flex items-center gap-2 mb-2">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Generated</p>
@@ -121,6 +121,7 @@ export default function LeadDetailPage() {
               ) : (
                 <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">AI</span>
               )}
+              <span className="text-xs text-gray-400 ml-auto">Read-only — never overwritten</span>
             </div>
             {lead.generated_draft ? (
               <div className="bg-gray-50 border border-gray-200 rounded-md p-3 space-y-2 text-sm">
@@ -132,9 +133,17 @@ export default function LeadDetailPage() {
               <p className="text-sm text-gray-400">No draft generated yet.</p>
             )}
           </div>
-          {/* Final — editable via form below */}
+
+          {/* Final draft — only shown in semi-autonomous mode */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Final Draft</p>
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Final Draft</p>
+              {lead.final_draft ? (
+                <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">Human edited</span>
+              ) : (
+                <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium">Semi-autonomous only</span>
+              )}
+            </div>
             {lead.final_draft ? (
               <div className="bg-white border border-gray-200 rounded-md p-3 space-y-2 text-sm">
                 <p className="font-medium text-gray-800">{lead.final_draft.subject}</p>
@@ -145,7 +154,14 @@ export default function LeadDetailPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-gray-400">Not finalized yet. Use the form below.</p>
+              <div className="bg-gray-50 border border-dashed border-gray-200 rounded-md p-4 text-center">
+                <p className="text-xs text-gray-400">
+                  In <strong>semi-autonomous</strong> mode, use the form below to edit and finalize this draft before sending.
+                </p>
+                <p className="text-xs text-gray-300 mt-1">
+                  In <strong>autonomous</strong> mode, emails are sent directly without this step.
+                </p>
+              </div>
             )}
           </div>
         </div>

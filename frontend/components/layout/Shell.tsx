@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { getToken, clearToken, isLoggedIn } from "@/lib/auth";
 
 const nav = [
@@ -14,7 +14,20 @@ const nav = [
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
-  const [email, setEmail] = useState<string | null>(null);
+
+  const email = useMemo(() => {
+    // Hide shell details on auth pages.
+    if (path.startsWith("/login") || path.startsWith("/signup")) return null;
+    if (!isLoggedIn()) return null;
+    try {
+      const token = getToken();
+      if (!token) return null;
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      return payload.email ?? null;
+    } catch {
+      return null;
+    }
+  }, [path]);
 
   useEffect(() => {
     // Skip auth check on login/signup pages
@@ -24,16 +37,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
       return;
     }
-
-    // Decode email from token payload (no network call needed)
-    try {
-      const token = getToken()!;
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      setEmail(payload.email ?? null);
-    } catch {
-      setEmail(null);
-    }
-  }, [path]);
+  }, [path, router]);
 
   function logout() {
     clearToken();

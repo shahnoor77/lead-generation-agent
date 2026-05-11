@@ -30,23 +30,29 @@ class OutreachService:
         evaluated: EvaluatedLead,
         context: BusinessContext,
         user_id: int | None = None,
+        autonomous: bool = False,
     ) -> OutreachOutput | None:
         if evaluated.decision == ICPDecision.REJECTED:
             logger.info("outreach.skipped", lead_id=str(evaluated.lead_id), reason="icp_rejected")
             return None
 
         logger.info("outreach.generate.start",
-                    lead_id=str(evaluated.lead_id), decision=evaluated.decision.value)
+                    lead_id=str(evaluated.lead_id),
+                    decision=evaluated.decision.value,
+                    autonomous=autonomous)
 
         try:
             output = await self._generator.draft(
-                enriched, evaluated, context, user_id=user_id
+                enriched, evaluated, context,
+                user_id=user_id,
+                autonomous=autonomous,
             )
             logger.info(
                 "outreach.generate.done",
                 lead_id=str(evaluated.lead_id),
                 language=output.language.value,
                 word_count=output.word_count,
+                autonomous=autonomous,
             )
             return output
         except Exception as e:

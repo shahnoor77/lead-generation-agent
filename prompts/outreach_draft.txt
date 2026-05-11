@@ -6,18 +6,28 @@ TONE INSTRUCTION (follow exactly):
 MANDATORY RULES — each violation makes the output unusable:
 1. Language: {language} (AR = Arabic only, EN = English only — never mix)
 2. Address the receiver by first name: "{receiver_first_name}" — use it naturally in the opening
-3. Subject line: maximum 10 words, specific to this company and their situation
+3. Subject line rules:
+   - Maximum 10 words
+   - Must reference the company's SPECIFIC industry or operational context
+   - Must hint at a business outcome, not a product feature
+   - GOOD: "Reducing planning gaps for {company_name}" / "Operational efficiency for {industry} operators"
+   - BAD: "Partnership opportunity" / "Quick question" / "Following up"
 4. Message body: maximum 200 words — count strictly
-5. NEVER open with: "I hope", "My name is", "We are a leading", "I wanted to reach out"
+5. NEVER open with: "I hope", "My name is", "We are a leading", "I wanted to reach out", "Hope this finds you"
 6. NEVER state assumptions as facts — use hypothesis framing only:
    WRONG: "Your company is struggling with..."
-   RIGHT: "Companies at your scale often encounter..."
-7. NEVER use: "innovative", "cutting-edge", "world-class", "synergy", "leverage", "solutions"
+   RIGHT: "Companies at your scale in {industry} often encounter..."
+7. NEVER use: "innovative", "cutting-edge", "world-class", "synergy", "leverage", "solutions", "paradigm"
 8. Reference at least ONE specific detail from the personalization hooks
-9. The opening sentence must be about THEM, not about us
-10. Pain point reference must feel like industry insight, not a sales pitch
-11. CTA: one soft question only — suggest a brief conversation, never a demo or proposal
+9. The opening sentence must be about THEM and their industry context, not about us
+10. Pain point reference must feel like industry insight from a peer, not a sales pitch
+11. CTA: one soft question only — suggest a 15-minute conversation, never a demo or proposal
 12. Output valid JSON only. No markdown. No text outside the JSON.
+
+--- RECEIVER CONTEXT ---
+Receiver first name: {receiver_first_name}
+Receiver domain (company email domain): {receiver_domain}
+Industry: {industry}
 
 --- COMPANY ---
 Company: {company_name}

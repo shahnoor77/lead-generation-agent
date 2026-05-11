@@ -1,17 +1,18 @@
 """
-Outreach Draft Generator — tone-aware, name-aware, auto-subject.
+Outreach Draft Generator — tone-aware, name-aware, domain-aware, auto-subject.
 
 Improvements:
-- Extracts receiver first name from key_people or receiver_name field
+- Extracts receiver first name from key_people or contact_email
+- Detects receiver domain from contact_email for personalization
+- Passes industry context into prompt for specific subject lines
 - Uses sender details from finalized draft if available
-- Generates subject line automatically based on company + pain signal
-- Applies tone from user's AI agent settings (executive-direct / formal-business / problem-specific)
-- Uses user-configured LLM model if set, otherwise system default
+- Applies tone from user's AI agent settings
 """
 
 from __future__ import annotations
 import json
 import re
+from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -25,7 +26,6 @@ logger = get_logger(__name__)
 
 _FALLBACK_SUBJECT_PREFIX = "[DRAFT NEEDED] "
 
-# ── Tone instructions per setting ─────────────────────────────────────────────
 _TONE_INSTRUCTIONS: dict[str, str] = {
     "executive-direct": (
         "Write in a direct, executive-to-executive tone. "
@@ -44,23 +44,42 @@ _TONE_INSTRUCTIONS: dict[str, str] = {
     ),
 }
 
-# ── Name extraction ───────────────────────────────────────────────────────────
 
 def _extract_first_name(full_name: str | None) -> str:
-    """Extract first name from a full name string. Returns 'there' as fallback."""
     if not full_name or not full_name.strip():
         return "there"
-    # Strip titles: Mr., Dr., Eng., etc.
     cleaned = re.sub(r"^(Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Eng\.?|Prof\.?)\s+", "", full_name.strip(), flags=re.IGNORECASE)
     parts = cleaned.split()
     return parts[0] if parts else "there"
 
 
 def _extract_receiver_name(enriched: EnrichedLead) -> str:
-    """Best-effort receiver first name from enriched lead data."""
     if enriched.key_people:
         return _extract_first_name(enriched.key_people[0])
+    # Try to infer from email local part: john.smith@company.com → John
+    if enriched.contact_email:
+        local = str(enriched.contact_email).split("@")[0]
+        # Remove numbers and dots, take first word
+        name_part = re.sub(r"[0-9_\-]", ".", local).split(".")[0]
+        if name_part and len(name_part) > 1:
+            return name_part.capitalize()
     return "there"
+
+
+def _extract_receiver_domain(enriched: EnrichedLead) -> str:
+    """Extract company domain from contact email or website URL."""
+    if enriched.contact_email:
+        parts = str(enriched.contact_email).split("@")
+        if len(parts) == 2:
+            return parts[1].lower()
+    if enriched.website:
+        try:
+            parsed = urlparse(str(enriched.website))
+            domain = parsed.netloc.lower().removeprefix("www.")
+            return domain
+        except Exception:
+            pass
+    return ""
 
 
 def _resolve_language(context: BusinessContext, enriched: EnrichedLead) -> OutreachLanguage:
@@ -70,8 +89,6 @@ def _resolve_language(context: BusinessContext, enriched: EnrichedLead) -> Outre
     return OutreachLanguage.EN
 
 
-# ── Outreach Generator ────────────────────────────────────────────────────────
-
 class OutreachGenerator:
     async def draft(
         self,
@@ -79,14 +96,17 @@ class OutreachGenerator:
         evaluated: EvaluatedLead,
         context: BusinessContext,
         user_id: int | None = None,
+        autonomous: bool = False,
     ) -> OutreachOutput:
         resolved_language = _resolve_language(context, enriched)
         inferred_pain_points = await infer_pain_points(enriched, evaluated, context)
         personalization_hooks = self._build_hooks(enriched, evaluated)
 
-        # Load user's AI agent settings for tone + model
-        tone_instruction = _TONE_INSTRUCTIONS["formal-business"]  # default
-        if user_id is not None:
+        # Autonomous mode: use problem-specific tone + lower temperature for precision
+        tone_instruction = _TONE_INSTRUCTIONS["formal-business"]
+        if autonomous:
+            tone_instruction = _TONE_INSTRUCTIONS["problem-specific"]
+        elif user_id is not None:
             try:
                 from app.services.settings import get_settings
                 user_settings = await get_settings(user_id)
@@ -95,12 +115,15 @@ class OutreachGenerator:
             except Exception:
                 pass
 
-        # Extract names
         receiver_first_name = _extract_receiver_name(enriched)
+        receiver_domain = _extract_receiver_domain(enriched)
+        industry = enriched.industry or (context.industries[0] if context.industries else "")
 
         prompt = load_prompt("outreach_draft").format(
             company_name=evaluated.company_name,
             receiver_first_name=receiver_first_name,
+            receiver_domain=receiver_domain or "N/A",
+            industry=industry,
             website_summary=enriched.summary or evaluated.llm_reasoning or "N/A",
             services=", ".join(enriched.services_detected) if enriched.services_detected else "N/A",
             key_people=", ".join(enriched.key_people) if enriched.key_people else "N/A",
@@ -115,6 +138,10 @@ class OutreachGenerator:
             personalization_hooks="\n".join(f"- {h}" for h in personalization_hooks),
         )
 
+        # Autonomous: lower temperature + more retries for higher quality
+        temperature = 0.2 if autonomous else 0.4
+        max_tokens = 700 if autonomous else 600
+
         subject: str = ""
         body: str = ""
         is_fallback = False
@@ -125,8 +152,8 @@ class OutreachGenerator:
                     {"role": "system", "content": "You are a JSON-only responder. Output valid JSON and nothing else."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=600,
-                temperature=0.4,
+                max_tokens=max_tokens,
+                temperature=temperature,
                 user_id=user_id,
             )
             raw = (response.choices[0].message.content or "{}").strip()
@@ -137,27 +164,30 @@ class OutreachGenerator:
                 subject = str(data.get("subject_line", "")).strip()[:80]
                 body = self._trim_to_words(str(data.get("message_body", "")).strip(), 250)
             except json.JSONDecodeError:
-                logger.warning("outreach.json_parse_failed",
-                               lead_id=str(evaluated.lead_id), raw=raw[:200])
+                logger.warning("outreach.json_parse_failed", lead_id=str(evaluated.lead_id), raw=raw[:200])
                 is_fallback = True
 
         except Exception as e:
-            logger.warning("outreach.llm_failed",
-                           lead_id=str(evaluated.lead_id), error=str(e))
+            logger.warning("outreach.llm_failed", lead_id=str(evaluated.lead_id), error=str(e))
             is_fallback = True
 
-        # Validate
         if not is_fallback and subject and body:
             result = validate_outreach(subject, body, evaluated.company_name)
             if not result.passed:
-                logger.warning("outreach.quality_failed",
-                               lead_id=str(evaluated.lead_id), issues=result.issues)
-                is_fallback = True
+                if autonomous:
+                    # In autonomous mode, retry once with a stricter system prompt
+                    logger.warning("outreach.quality_failed_autonomous_retry",
+                                   lead_id=str(evaluated.lead_id), issues=result.issues)
+                    subject, body = await self._retry_autonomous(prompt, evaluated.company_name)
+                    is_fallback = not subject
+                else:
+                    logger.warning("outreach.quality_failed", lead_id=str(evaluated.lead_id), issues=result.issues)
+                    is_fallback = True
 
         if is_fallback or not subject or not body:
             subject, body = outreach_fallback(evaluated.company_name)
             subject = _FALLBACK_SUBJECT_PREFIX + subject
-            logger.info("outreach.fallback_used", lead_id=str(evaluated.lead_id))
+            logger.info("outreach.fallback_used", lead_id=str(evaluated.lead_id), autonomous=autonomous)
 
         return OutreachOutput(
             lead_id=evaluated.lead_id,
@@ -170,6 +200,33 @@ class OutreachGenerator:
             max_allowed_words=300,
             approved=False,
         )
+
+    async def _retry_autonomous(self, original_prompt: str, company_name: str) -> tuple[str, str]:
+        """One retry with stricter instructions for autonomous mode."""
+        try:
+            response = await llm_chat(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a JSON-only responder. Output ONLY valid JSON. "
+                            "The email must be professional, specific, and under 180 words. "
+                            "No generic phrases. No filler. Subject must reference the company's industry."
+                        ),
+                    },
+                    {"role": "user", "content": original_prompt},
+                ],
+                max_tokens=700,
+                temperature=0.1,
+            )
+            raw = (response.choices[0].message.content or "{}").strip()
+            raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            data = json.loads(raw)
+            subject = str(data.get("subject_line", "")).strip()[:80]
+            body = self._trim_to_words(str(data.get("message_body", "")).strip(), 250)
+            return subject, body
+        except Exception:
+            return "", ""
 
     def _build_hooks(self, enriched: EnrichedLead, evaluated: EvaluatedLead) -> list[str]:
         hooks: list[str] = []

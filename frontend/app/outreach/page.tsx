@@ -41,7 +41,12 @@ export default function OutreachAgentPage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   async function addAccount(e: React.FormEvent) {
     e.preventDefault();

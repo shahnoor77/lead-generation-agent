@@ -61,6 +61,10 @@ async def save_settings(user_id: int, req: UserSettingsRequest) -> UserSettingsR
             rec.outreach_send_window_start = req.outreach.send_window_start
             rec.outreach_send_window_end = req.outreach.send_window_end
             rec.outreach_language_default = req.outreach.language_default
+            rec.outreach_followup_enabled = req.outreach.followup_enabled
+            rec.outreach_reply_check_enabled = req.outreach.reply_check_enabled
+            rec.outreach_followup_max_attempts = req.outreach.followup_max_attempts
+            rec.outreach_followup_interval_hours = req.outreach.followup_interval_hours
 
         if req.ai_agent:
             rec.ai_model = req.ai_agent.model
@@ -100,6 +104,10 @@ def _to_response(rec: UserSettingsRecord) -> UserSettingsResponse:
             send_window_start=rec.outreach_send_window_start,
             send_window_end=rec.outreach_send_window_end,
             language_default=rec.outreach_language_default,
+            followup_enabled=rec.outreach_followup_enabled,
+            reply_check_enabled=rec.outreach_reply_check_enabled,
+            followup_max_attempts=rec.outreach_followup_max_attempts,
+            followup_interval_hours=rec.outreach_followup_interval_hours,
         ),
         ai_agent=AIAgentSettings(
             model=rec.ai_model,

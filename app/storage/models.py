@@ -291,6 +291,10 @@ class UserSettingsRecord(SQLModel, table=True):
     outreach_send_window_start: str = "09:00"   # HH:MM UTC
     outreach_send_window_end: str = "17:00"
     outreach_language_default: str = "EN"
+    outreach_followup_enabled: bool = True
+    outreach_reply_check_enabled: bool = True
+    outreach_followup_max_attempts: int = 4
+    outreach_followup_interval_hours: int = 48
 
     # ── AI Agent Settings ─────────────────────────────────────────────────────
     ai_model: str = "qwen2.5-coder:14b"
@@ -319,6 +323,11 @@ class SenderEmailAccountRecord(SQLModel, table=True):
     smtp_username: str = ""
     smtp_password_encrypted: str = ""           # encrypted with SECRET_KEY
     use_tls: bool = True
+    imap_host: Optional[str] = None
+    imap_port: int = 993
+    imap_username: Optional[str] = None
+    imap_password_encrypted: Optional[str] = None
+    imap_use_ssl: bool = True
     is_active: bool = True
     daily_limit: int = 50
     created_at: datetime = Field(default_factory=_utcnow)
@@ -340,7 +349,25 @@ class OutreachSentRecord(SQLModel, table=True):
     subject: str
     sent_at: datetime = Field(default_factory=_utcnow)
     status: str = "sent"                        # sent | failed | bounced
+    campaign_stage: str = "initial"             # initial | followup | reply
     error_message: Optional[str] = None
+
+
+class OutreachReplyRecord(SQLModel, table=True):
+    """
+    Inbound reply log for follow-up automation and deduplication.
+    """
+    __tablename__ = "outreach_replies"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    lead_id: str = Field(index=True)
+    receiver_email: str
+    message_id: str = Field(index=True)
+    reply_subject: str
+    reply_body: str
+    intent: str = "neutral"                     # positive | neutral | negative
+    received_at: datetime = Field(default_factory=_utcnow)
 
 
 class OutreachJobRecord(SQLModel, table=True):

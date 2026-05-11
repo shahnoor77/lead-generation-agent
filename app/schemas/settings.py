@@ -36,13 +36,21 @@ class OutreachSettings(BaseModel):
     send_window_start: str = Field(default="09:00", description="HH:MM UTC")
     send_window_end: str = Field(default="17:00", description="HH:MM UTC")
     language_default: str = Field(default="EN", description="EN | AR | AUTO")
+    followup_enabled: bool = True
+    reply_check_enabled: bool = True
+    followup_max_attempts: int = Field(default=4, ge=1, le=10)
+    followup_interval_hours: int = Field(default=48, ge=1, le=720)
 
 
 class AIAgentSettings(BaseModel):
     model: str = Field(default="qwen2.5-coder:14b", description="Ollama model name")
     agent_mode: str = Field(
         default="semi-autonomous",
-        description="semi-autonomous | manual",
+        description=(
+            "semi-autonomous: pipeline stops after draft generation. "
+            "Operator reviews and edits drafts, manually approves, manually triggers send. "
+            "autonomous: pipeline generates high-quality drafts, auto-approves, auto-sends immediately."
+        ),
     )
     email_tone: str = Field(
         default="formal-business",
