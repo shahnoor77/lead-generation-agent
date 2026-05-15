@@ -47,6 +47,9 @@ class LeadRepository:
                     country=getattr(context, "country", None),
                     area=context.area,
                     language_preference=context.language_preference.value,
+                    sandbox_outreach=getattr(result, "sandbox_outreach", False) or getattr(
+                        context, "sandbox_outreach", False
+                    ),
                     total_discovered=result.total_discovered,
                     total_enriched=result.total_enriched,
                     total_filtered_out=result.total_filtered_out,

@@ -193,6 +193,13 @@ class BusinessContext(BaseModel):
         description="Free-text notes passed to ICP evaluator and outreach generator",
     )
 
+    # ── Sandbox / test pipeline (SMTP goes to sandbox inboxes — see Settings) ─
+    sandbox_outreach: bool = Field(
+        default=False,
+        description="If True, pipeline run is flagged as sandbox: outbound SMTP is routed "
+                    "to operator-configured test inboxes instead of real lead contacts.",
+    )
+
     # ── Continuous run config (optional) ──────────────────────────────────────
     continuous: bool = Field(
         default=False,

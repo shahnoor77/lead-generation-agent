@@ -8,7 +8,7 @@ These are read-only views — no mutations happen here.
 from __future__ import annotations
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.lifecycle import LeadLifecycleStatus, LeadStatusHistoryEntry
 from app.schemas.finalization import ReceiverDetails, SenderDetails
@@ -44,6 +44,7 @@ class PipelineRunSummary(BaseModel):
     total_enriched: int
     total_evaluated: int
     total_outreach_drafts: int
+    sandbox_outreach: bool = False
     status_summary: RunStatusSummary
 
 
@@ -60,10 +61,12 @@ class LeadSummary(BaseModel):
     company_name: str
     website: Optional[str]
     location: str
+    contact_email: Optional[str] = None
     fit_score: int
     decision: str                       # QUALIFIED | REJECTED
     current_status: Optional[str]       # LeadLifecycleStatus value
     approval_status: Optional[str]      # PENDING_REVIEW | APPROVED | None
+    outreach_sent: bool = False       # Any successful send logged for this user + lead (hides Kanban Send)
     discovered_at: datetime
 
 
@@ -85,6 +88,10 @@ class LeadCompanyInfo(BaseModel):
     category: Optional[str]
     rating: Optional[float]
     review_count: Optional[int]
+    contact_email: Optional[str] = Field(
+        default=None,
+        description="Discovered / enriched outbound address (used automatically for outreach).",
+    )
 
 
 class LeadIntelligence(BaseModel):

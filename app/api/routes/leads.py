@@ -11,7 +11,9 @@ GET  /api/v1/auth/config             Load saved config for current user
 """
 
 import asyncio
+import os
 import uuid as _uuid
+from collections.abc import Callable
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from pydantic import BaseModel
 
@@ -22,6 +24,8 @@ from app.storage.models import PipelineRunRecord, OutreachRecord, EvaluatedLeadR
 from app.core.logging import get_logger
 from app.api.dependencies import get_current_user
 from app.services.user_config import save_user_config, load_user_config
+from app.core.config import settings as app_settings
+from app.services.sandbox_outreach import count_active_inboxes
 from sqlmodel import select
 
 router = APIRouter()
@@ -63,7 +67,68 @@ class DraftsResponse(BaseModel):
 
 # ── Pipeline runner ───────────────────────────────────────────────────────────
 
-async def _run_pipeline(run_id: str, context: BusinessContext, user_id: int | None = None) -> None:
+async def _inbox_poll_until(
+    user_id: int,
+    should_stop: Callable[[], bool],
+    *,
+    tag: str = "inbox",
+) -> None:
+    """
+    Periodically scans the sender inbox for outbound-thread replies while lead-gen runs elsewhere.
+    Uses asyncio (not OS threads): I/O runs in thread executor inside outreach agent IMAP helpers.
+    """
+    from app.modules.outreach.agent import run_followup_inbox_only
+
+    poll_seconds = float(os.environ.get("OUTREACH_INBOX_POLL_INTERVAL_SEC", "20"))
+    poll_seconds = max(10.0, min(poll_seconds, 3600.0))
+    logger.info("inbox.poll_loop_started", user_id=user_id, tag=tag, interval_seconds=poll_seconds)
+
+    while not should_stop():
+        try:
+            summary = await run_followup_inbox_only(user_id)
+            if isinstance(summary, dict) and summary.get("processed"):
+                logger.info(
+                    "inbox.poll_processed",
+                    user_id=user_id,
+                    tag=tag,
+                    processed=summary.get("processed"),
+                    closed=summary.get("closed"),
+                    auto_replied=summary.get("auto_replied"),
+                )
+        except Exception as e:
+            logger.warning("inbox.poll_error", user_id=user_id, tag=tag, error=str(e)[:200])
+
+        slept = 0.0
+        while slept < poll_seconds and not should_stop():
+            chunk = min(10.0, poll_seconds - slept)
+            await asyncio.sleep(chunk)
+            slept += chunk
+
+    logger.info("inbox.poll_loop_stopped", user_id=user_id, tag=tag)
+
+
+async def _run_pipeline(
+    run_id: str,
+    context: BusinessContext,
+    user_id: int | None = None,
+    *,
+    companion_inbox_poll: bool = True,
+) -> None:
+    """
+    Runs the enrichment / ICP pipeline. Optionally runs an inbox polling task in parallel so
+    follow-up replies are detected while discovery + enrichment blocks this coroutine.
+    """
+    cancel_inbox_buddy = asyncio.Event()
+    inbox_buddy_task: asyncio.Task | None = None
+    if user_id is not None and companion_inbox_poll:
+        inbox_buddy_task = asyncio.create_task(
+            _inbox_poll_until(
+                user_id,
+                lambda: cancel_inbox_buddy.is_set(),
+                tag=f"pipeline_run_{run_id}",
+            ),
+        )
+
     try:
         _run_status[run_id] = "running"
         orchestrator = PipelineOrchestrator()
@@ -74,6 +139,14 @@ async def _run_pipeline(run_id: str, context: BusinessContext, user_id: int | No
     except Exception as e:
         _run_status[run_id] = "failed"
         logger.error("background.pipeline.failed", run_id=run_id, error=str(e))
+    finally:
+        cancel_inbox_buddy.set()
+        if inbox_buddy_task is not None:
+            inbox_buddy_task.cancel()
+            try:
+                await inbox_buddy_task
+            except asyncio.CancelledError:
+                pass
 
 
 async def _continuous_loop(config_id: str, context: BusinessContext, user_id: int) -> None:
@@ -85,19 +158,35 @@ async def _continuous_loop(config_id: str, context: BusinessContext, user_id: in
     logger.info("continuous.started", config_id=config_id, user_id=user_id,
                 interval_minutes=context.continuous_interval_minutes)
 
-    while _continuous_active.get(config_id, False):
-        run_id = str(_uuid.uuid4())
-        logger.info("continuous.run_starting", config_id=config_id, run_id=run_id)
-        await _run_pipeline(run_id, context, user_id=user_id)
+    # One inbox poller for the whole continuous session (parallel to every pipeline iteration).
+    followup_poller = asyncio.create_task(
+        _inbox_poll_until(
+            user_id,
+            lambda: not _continuous_active.get(config_id, False),
+            tag=f"continuous_{config_id}",
+        ),
+    )
 
-        if not _continuous_active.get(config_id, False):
-            break
+    try:
+        while _continuous_active.get(config_id, False):
+            run_id = str(_uuid.uuid4())
+            logger.info("continuous.run_starting", config_id=config_id, run_id=run_id)
+            await _run_pipeline(run_id, context, user_id=user_id, companion_inbox_poll=False)
 
-        logger.info("continuous.waiting", config_id=config_id, seconds=interval_seconds)
-        for _ in range(interval_seconds // 10):
             if not _continuous_active.get(config_id, False):
                 break
-            await asyncio.sleep(10)
+
+            logger.info("continuous.waiting", config_id=config_id, seconds=interval_seconds)
+            for _ in range(interval_seconds // 10):
+                if not _continuous_active.get(config_id, False):
+                    break
+                await asyncio.sleep(10)
+    finally:
+        followup_poller.cancel()
+        try:
+            await followup_poller
+        except asyncio.CancelledError:
+            pass
 
     logger.info("continuous.stopped", config_id=config_id)
     _continuous_active.pop(config_id, None)
@@ -119,6 +208,23 @@ async def generate_leads(
     """
     # Persist config for this user
     await save_user_config(current_user.id, request.context)
+
+    if request.context.sandbox_outreach:
+        if not app_settings.sandbox_outreach_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="Sandbox outreach is disabled on this deployment.",
+            )
+        if request.context.continuous:
+            raise HTTPException(
+                status_code=400,
+                detail="Sandbox pipeline runs cannot use continuous mode.",
+            )
+        if await count_active_inboxes(current_user.id) < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Add at least one sandbox test inbox (Settings) before running a sandbox pipeline.",
+            )
 
     run_id = str(_uuid.uuid4())
     _run_status[run_id] = "running"

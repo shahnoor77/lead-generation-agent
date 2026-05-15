@@ -41,6 +41,7 @@ logger = get_logger(__name__)
 class PipelineResult:
     pipeline_run_id: str
     agent_mode: str = "semi-autonomous"
+    sandbox_outreach: bool = False
     total_discovered: int = 0
     total_enriched: int = 0
     total_filtered_out: int = 0
@@ -90,8 +91,13 @@ class PipelineOrchestrator:
 
         agent_mode = await _load_agent_mode(user_id)
         is_autonomous = agent_mode == "autonomous"
+        sandbox_outreach = getattr(context, "sandbox_outreach", False) or False
 
-        result = PipelineResult(pipeline_run_id=run_id, agent_mode=agent_mode)
+        result = PipelineResult(
+            pipeline_run_id=run_id,
+            agent_mode=agent_mode,
+            sandbox_outreach=sandbox_outreach,
+        )
         seen_ids: set = set()
 
         structlog.contextvars.bind_contextvars(pipeline_run_id=run_id)
@@ -179,14 +185,15 @@ class PipelineOrchestrator:
                         str(draft.lead_id), evaluated.company_name, run_id, LeadLifecycleStatus.OUTREACH_DRAFTED
                     )
 
-                    # ── Autonomous mode: auto-approve + auto-send ──────────
-                    if is_autonomous and draft:
+                    # Auto-send for both modes (user requested fully automated sends).
+                    if draft:
                         sent = await self._auto_send(
                             draft=draft,
                             enriched=enriched,
                             user_id=user_id,
                             run_id=run_id,
                             company_name=evaluated.company_name,
+                            sandbox_pipeline=sandbox_outreach,
                         )
                         if sent:
                             result.total_auto_sent += 1
@@ -223,6 +230,8 @@ class PipelineOrchestrator:
         user_id: int | None,
         run_id: str,
         company_name: str,
+        *,
+        sandbox_pipeline: bool = False,
     ) -> bool:
         """
         Autonomous mode: auto-approve the draft and send immediately.
@@ -241,14 +250,31 @@ class PipelineOrchestrator:
             from sqlmodel import select
 
             # Need a finalized draft record with receiver email
-            receiver_email = str(enriched.contact_email) if enriched.contact_email else None
-            if not receiver_email:
+            natural_receiver = str(enriched.contact_email) if enriched.contact_email else None
+            if not natural_receiver:
                 logger.info("auto_send.no_receiver_email", lead_id=str(draft.lead_id))
                 return False
 
             lead_id = str(draft.lead_id)
 
-            # Dedup check
+            from app.services.sandbox_outreach import SandboxConfigError, resolve_smtp_receiver
+
+            try:
+                receiver_email = await resolve_smtp_receiver(
+                    user_id,
+                    lead_id,
+                    natural_receiver,
+                    sandbox_pipeline=sandbox_pipeline,
+                )
+            except SandboxConfigError as e:
+                logger.warning(
+                    "auto_send.sandbox_blocked",
+                    lead_id=lead_id,
+                    error=str(e),
+                )
+                return False
+
+            # Dedup check (sandbox uses mapped test address in log)
             if await _already_sent(user_id, lead_id, receiver_email):
                 logger.info("auto_send.already_sent", lead_id=lead_id)
                 return False
@@ -269,7 +295,7 @@ class PipelineOrchestrator:
 
             smtp_password = decrypt(sender.smtp_password_encrypted)
 
-            await _send_email_async(
+            out_mid_o = await _send_email_async(
                 smtp_host=sender.smtp_host,
                 smtp_port=sender.smtp_port,
                 smtp_username=sender.smtp_username,
@@ -283,11 +309,17 @@ class PipelineOrchestrator:
             )
 
             await _log_sent(user_id, lead_id, sender.email_address,
-                           receiver_email, draft.email_subject)
+                           receiver_email, draft.email_subject,
+                           outbound_message_id=out_mid_o)
             await _mark_contacted(lead_id, user_id)
 
-            logger.info("auto_send.sent", lead_id=lead_id, to=receiver_email,
-                       company=company_name)
+            logger.info(
+                "auto_send.sent",
+                lead_id=lead_id,
+                to=receiver_email,
+                sandbox=sandbox_pipeline,
+                company=company_name,
+            )
             return True
 
         except Exception as e:

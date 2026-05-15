@@ -8,13 +8,11 @@ import { ErrorMsg } from "@/components/ui/ErrorMsg";
 import { MetricCard } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
 const KANBAN_COLS = [
-  { key: "QUALIFIED",         label: "Qualified",      color: "border-green-300" },
-  { key: "OUTREACH_DRAFTED",  label: "Drafted",        color: "border-purple-300" },
-  { key: "READY_FOR_REVIEW",  label: "Review",         color: "border-yellow-300" },
-  { key: "READY_TO_SEND",     label: "Ready to Send",  color: "border-orange-300" },
+  { key: "QUALIFIED",         label: "Qualified",       color: "border-green-300" },
+  { key: "OUTREACH_DRAFTED",  label: "Outreach draft", color: "border-purple-300" },
+  { key: "READY_FOR_REVIEW",  label: "Edit / approve", color: "border-yellow-300" },
+  { key: "READY_TO_SEND",     label: "Send queue",     color: "border-orange-300" },
   { key: "CONTACTED",         label: "Contacted",      color: "border-cyan-300" },
   { key: "REPLIED",           label: "Replied",        color: "border-teal-300" },
   { key: "MEETING_SCHEDULED", label: "Meeting",        color: "border-indigo-300" },
@@ -31,8 +29,6 @@ export default function RunDetailPage() {
   const [pipelineComplete, setPipelineComplete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [outreachResult, setOutreachResult] = useState<Record<string, string> | null>(null);
-  const [sendingIndustry, setSendingIndustry] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function fetchData() {
@@ -74,37 +70,6 @@ export default function RunDetailPage() {
     };
   }, [runId]);
 
-  async function sendOutreachForIndustry(industry: string) {
-    setSendingIndustry(industry);
-    setOutreachResult(null);
-    try {
-      const { getToken } = await import("@/lib/auth");
-      const token = getToken();
-      const res = await fetch(`${BASE}/api/v1/outreach/send-by-industry`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ run_id: runId, industry }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Send failed");
-      setOutreachResult({
-        industry,
-        message: `Sent: ${data.sent} · Skipped: ${data.skipped} · Failed: ${data.failed}`,
-      });
-    } catch (e: unknown) {
-      setOutreachResult({
-        industry,
-        message: e instanceof Error ? e.message : "Send failed",
-        error: "1",
-      });
-    } finally {
-      setSendingIndustry(null);
-    }
-  }
-
   if (loading) return <Spinner />;
   if (error) return <ErrorMsg message={error} />;
   if (!run) return <ErrorMsg message="Run not found." />;
@@ -121,15 +86,6 @@ export default function RunDetailPage() {
     { label: "Lost",        value: s.total_lost,             color: "text-red-500" },
   ];
 
-  // Derive unique industries from leads
-  const industries = [...new Set(
-    leads.map((l) => l.location).filter(Boolean)
-  )];
-  // Use run industries from the run record
-  const runIndustries = run.industries
-    ? run.industries.split(",").map((i) => i.trim()).filter(Boolean)
-    : [];
-
   const byStatus: Record<string, LeadSummary[]> = {};
   for (const col of KANBAN_COLS) byStatus[col.key] = [];
   for (const lead of leads) {
@@ -139,7 +95,6 @@ export default function RunDetailPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden">
-      {/* Header */}
       <div className="flex-shrink-0 mb-4">
         <div className="flex items-start justify-between">
           <div>
@@ -161,6 +116,9 @@ export default function RunDetailPage() {
             <p className="text-sm text-gray-500 mt-0.5">
               {run.location}{run.country ? `, ${run.country}` : ""} · {new Date(run.started_at).toLocaleDateString()}
             </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Outreach sends and reply handling run automatically via the outreach job and inbox monitors.
+            </p>
           </div>
           <Link
             href={`/runs/${runId}/discovered`}
@@ -169,49 +127,14 @@ export default function RunDetailPage() {
             All Discovered ({run.total_discovered}) →
           </Link>
         </div>
-
-        {/* Per-industry outreach buttons */}
-        {runIndustries.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">Send outreach by industry:</span>
-            {runIndustries.map((ind) => (
-              <button
-                key={ind}
-                disabled={sendingIndustry === ind}
-                onClick={() => sendOutreachForIndustry(ind)}
-                className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-md font-medium"
-              >
-                {sendingIndustry === ind ? (
-                  <><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> Sending…</>
-                ) : (
-                  <>✉ {ind}</>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Outreach result toast */}
-        {outreachResult && (
-          <div className={`mt-2 text-xs px-3 py-2 rounded-md ${
-            outreachResult.error
-              ? "bg-red-50 text-red-700 border border-red-200"
-              : "bg-green-50 text-green-700 border border-green-200"
-          }`}>
-            <strong>{outreachResult.industry}:</strong> {outreachResult.message}
-            <button onClick={() => setOutreachResult(null)} className="ml-3 opacity-50 hover:opacity-100">✕</button>
-          </div>
-        )}
       </div>
 
-      {/* Metric cards */}
       <div className="flex-shrink-0 grid grid-cols-4 sm:grid-cols-8 gap-3 mb-4">
         {metrics.map((m) => (
           <MetricCard key={m.label} label={m.label} value={m.value} color={m.color} />
         ))}
       </div>
 
-      {/* Kanban */}
       {leads.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
           {pipelineComplete

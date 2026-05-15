@@ -63,6 +63,25 @@ _SPAM_OPENERS = {
     "as a leading",
 }
 
+# Internal / meta-language that must never appear in customer-facing mail
+_PIPELINE_META_PHRASES = (
+    "draft needed",
+    "pending review",
+    "awaiting review",
+    "for your review",
+    "please review this draft",
+    "ai generated",
+    "automated message",
+    "this email was drafted",
+)
+
+_BAD_SUBJECT_SNIPPETS = (
+    "quick question",
+    "following up",
+    "checking in",
+    "touching base",
+)
+
 # ── Minimum useful lengths ─────────────────────────────────────────────────────
 _MIN_SUMMARY_WORDS = 15
 _MIN_SUBJECT_WORDS = 3
@@ -190,6 +209,22 @@ def validate_outreach(subject: str, body: str, company_name: str) -> ValidationR
     if found_assumptions:
         result.add_issue(f"assumption stated as fact: {found_assumptions[0]!r}")
 
+    # Pipeline / meta wording (looks untrustworthy to recipients)
+    found_meta_subj = [p for p in _PIPELINE_META_PHRASES if p in subject_lower]
+    found_meta_body = [p for p in _PIPELINE_META_PHRASES if p in body_lower]
+    if found_meta_subj:
+        result.add_issue(f"internal/meta wording in subject: {found_meta_subj[0]!r}")
+    if found_meta_body:
+        result.add_issue(f"internal/meta wording in body: {found_meta_body[0]!r}")
+
+    bad_sub = [p for p in _BAD_SUBJECT_SNIPPETS if p in subject_lower]
+    if bad_sub:
+        result.add_issue(f"generic or weak subject phrasing: {bad_sub[0]!r}")
+
+    # Leading bracket labels in subject (e.g. leftover tags)
+    if subject.strip().startswith("[") and "]" in subject[:25]:
+        result.add_issue("subject still contains bracket/tag prefix")
+
     # 8. Repeated content (body contains company name too many times)
     if body_lower.count(company_name.lower()) > 4:
         result.add_issue("company name repeated excessively in body")
@@ -205,18 +240,39 @@ def validate_outreach(subject: str, body: str, company_name: str) -> ValidationR
     return result
 
 
-def outreach_fallback(company_name: str) -> tuple[str, str]:
+def outreach_fallback(
+    company_name: str,
+    *,
+    industry_hint: str | None = None,
+    receiver_opener: str = "Hello,",
+    sender_signoff_name: str = "Our team",
+) -> tuple[str, str]:
     """
-    Safe fallback outreach draft when LLM output fails validation.
-    Returns (subject, body) — minimal, professional, clearly a placeholder.
+    Safe outreach when LLM output fails validation — reads like a human note,
+    uses hypothesis framing, and avoids weak subject lines and banned openers.
     """
-    subject = f"Quick question for {company_name}"
+    sector = (industry_hint or "").strip()
+    if not sector or sector.upper() == "N/A":
+        sector = "your sector"
+    # Keep subject specific; never use "quick question"
+    tail = sector.split(",")[0].strip()
+    if len(tail) > 42:
+        tail = tail[:39].rstrip() + "..."
+    subject = f"Throughput and coordination — {company_name}"
+    if tail and tail.lower() != "your sector":
+        subject = f"{tail} — notes for {company_name}"
+    subject = subject[:80]
+
+    greet = (receiver_opener or "Hello,").strip()
+    sign = (sender_signoff_name or "Our team").strip()
     body = (
-        f"I came across {company_name} and wanted to reach out briefly. "
-        f"We work with companies in your sector on operational efficiency initiatives, "
-        f"and I thought there might be a relevant conversation worth having. "
-        f"Would you be open to a 15-minute call to explore if there's a fit? "
-        f"No pressure — happy to share more context first if useful."
+        f"{greet}\n\n"
+        f"Organizations with a footprint like {company_name} in {sector} often see handoffs between "
+        f"planning and daily operations absorb more attention as throughput grows — a common pattern in "
+        f"similar businesses, not a claim about yours specifically.\n\n"
+        f"Our team spends time with operators on that coordination layer. If a 15-minute call to compare notes "
+        f"would be useful, does next week hold a slot that works for you?\n\n"
+        f"Best regards,\n{sign}"
     )
     return subject, body
 

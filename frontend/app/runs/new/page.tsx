@@ -6,6 +6,9 @@ import { ErrorMsg } from "@/components/ui/ErrorMsg";
 
 const LANG_OPTIONS = ["EN", "AR", "AUTO"];
 
+/** Hide Test (sandbox) UI in production builds by setting NEXT_PUBLIC_ENABLE_SANDBOX_UI=false */
+const SHOW_SANDBOX_UI = process.env.NEXT_PUBLIC_ENABLE_SANDBOX_UI !== "false";
+
 type State = "idle" | "submitting" | "processing" | "error";
 
 export default function NewRunPage() {
@@ -13,6 +16,7 @@ export default function NewRunPage() {
   const [state, setState] = useState<State>("idle");
   const [error, setError] = useState("");
   const [runId, setRunId] = useState("");
+  const [sandboxServerOk, setSandboxServerOk] = useState(false);
 
   const [form, setForm] = useState({
     industries: "",
@@ -29,6 +33,13 @@ export default function NewRunPage() {
     continuous: false,
     continuous_interval_minutes: 60,
   });
+
+  useEffect(() => {
+    api.getSettings().then((s) => {
+      const avail = (s as { sandbox_outreach_available?: boolean }).sandbox_outreach_available;
+      setSandboxServerOk(avail !== false);
+    }).catch(() => setSandboxServerOk(false));
+  }, []);
 
   useEffect(() => {
     // Restore last-saved config for this user
@@ -62,8 +73,28 @@ export default function NewRunPage() {
     return s.split(",").map((x) => x.trim()).filter(Boolean);
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  function buildPayload(sandbox: boolean) {
+    return {
+      context: {
+        industries: splitCSV(form.industries),
+        location: form.location,
+        country: form.country || undefined,
+        domain: form.domain || undefined,
+        excluded_categories: splitCSV(form.excluded_categories),
+        our_services: splitCSV(form.our_services),
+        target_pain_patterns: splitCSV(form.target_pain_patterns),
+        pain_points: splitCSV(form.pain_points),
+        value_proposition: form.value_proposition || undefined,
+        notes: form.notes || undefined,
+        language_preference: form.language_preference,
+        sandbox_outreach: sandbox ? true : undefined,
+        continuous: sandbox ? false : form.continuous,
+        continuous_interval_minutes: form.continuous_interval_minutes,
+      },
+    };
+  }
+
+  async function startRun(sandbox: boolean) {
     if (!form.industries.trim() || !form.location.trim()) {
       setError("Industries and Location are required.");
       return;
@@ -72,23 +103,7 @@ export default function NewRunPage() {
     setState("submitting");
 
     try {
-      const res = await api.startRun({
-        context: {
-          industries: splitCSV(form.industries),
-          location: form.location,
-          country: form.country || undefined,
-          domain: form.domain || undefined,
-          excluded_categories: splitCSV(form.excluded_categories),
-          our_services: splitCSV(form.our_services),
-          target_pain_patterns: splitCSV(form.target_pain_patterns),
-          pain_points: splitCSV(form.pain_points),
-          value_proposition: form.value_proposition || undefined,
-          notes: form.notes || undefined,
-          language_preference: form.language_preference,
-          continuous: form.continuous,
-          continuous_interval_minutes: form.continuous_interval_minutes,
-        },
-      });
+      const res = await api.startRun(buildPayload(sandbox));
 
       setRunId(res.pipeline_run_id);
       setState("processing");
@@ -99,6 +114,16 @@ export default function NewRunPage() {
       setError(err instanceof Error ? err.message : "Failed to start run");
       setState("error");
     }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    await startRun(false);
+  }
+
+  async function submitSandbox(e: React.MouseEvent) {
+    e.preventDefault();
+    await startRun(true);
   }
 
   // ── Processing state ───────────────────────────────────────────────────────
@@ -283,13 +308,32 @@ export default function NewRunPage() {
           )}
         </div>
 
-        <button
-          type="submit"
-          disabled={state === "submitting"}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-md"
-        >
-          {state === "submitting" ? "Starting pipeline…" : "Generate Leads"}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            type="submit"
+            disabled={state === "submitting"}
+            className={`${SHOW_SANDBOX_UI && sandboxServerOk ? "flex-1" : "w-full"} bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-md`}
+          >
+            {state === "submitting" ? "Starting pipeline…" : "Generate Leads"}
+          </button>
+          {SHOW_SANDBOX_UI && sandboxServerOk && (
+            <button
+              type="button"
+              disabled={state === "submitting"}
+              onClick={submitSandbox}
+              className="flex-1 border-2 border-amber-400 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-900 text-sm font-medium py-2.5 rounded-md"
+              title="Same automation, but SMTP goes only to sandbox inboxes configured in Settings"
+            >
+              Test (sandbox)
+            </button>
+          )}
+        </div>
+        {SHOW_SANDBOX_UI && sandboxServerOk && (
+          <p className="text-xs text-gray-500">
+            <strong>Test (sandbox)</strong> uses real leads but redirects all outbound mail to your sandbox inboxes.
+            Add them under Settings → Sandbox test inboxes before running.
+          </p>
+        )}
       </form>
     </div>
   );

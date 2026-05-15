@@ -16,7 +16,7 @@ from pydantic import BaseModel, EmailStr, Field
 # ── Sub-models ────────────────────────────────────────────────────────────────
 
 class ReceiverDetails(BaseModel):
-    """Manually filled by operator. Never auto-discovered."""
+    """Operator fills identity fields; outbound email normally comes from enriched lead data."""
     receiver_name: str = Field(..., min_length=1, max_length=200)
     receiver_role: Optional[str] = Field(default=None, max_length=200)
     receiver_email: EmailStr

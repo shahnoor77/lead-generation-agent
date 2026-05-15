@@ -5,27 +5,39 @@ TONE INSTRUCTION (follow exactly):
 
 MANDATORY RULES — each violation makes the output unusable:
 1. Language: {language} (AR = Arabic only, EN = English only — never mix)
-2. Address the receiver by first name: "{receiver_first_name}" — use it naturally in the opening
+2. RECEIVER GREETING (follow exactly — overrides any default):
+   {receiver_opening_instruction}
+   Reference context: known first-name hint (may be empty): "{receiver_first_name_hint}"
 3. Subject line rules:
    - Maximum 10 words
-   - Must reference the company's SPECIFIC industry or operational context
+   - Must reference the company's operations, priorities, or growth context (industry mention is optional, never forced)
    - Must hint at a business outcome, not a product feature
-   - GOOD: "Reducing planning gaps for {company_name}" / "Operational efficiency for {industry} operators"
+   - GOOD: "Reducing planning gaps for {company_name}" / "Improving operational visibility at {company_name}"
    - BAD: "Partnership opportunity" / "Quick question" / "Following up"
 4. Message body: maximum 200 words — count strictly
-5. NEVER open with: "I hope", "My name is", "We are a leading", "I wanted to reach out", "Hope this finds you"
-6. NEVER state assumptions as facts — use hypothesis framing only:
+5. CLOSING / SIGN-OFF: End with ONE professional closing phrase (pick one: "Best regards," or "Kind regards," or "Sincerely,") on its own line, then on the next line ONLY this signature name (no extra title unless part of the name): {sender_signoff_name}
+   Do not use a placeholder. The signature line must match that text exactly.
+6. NEVER open with: "I hope", "My name is", "We are a leading", "I wanted to reach out", "Hope this finds you"
+7. NEVER state assumptions as facts — use hypothesis framing only:
    WRONG: "Your company is struggling with..."
    RIGHT: "Companies at your scale in {industry} often encounter..."
-7. NEVER use: "innovative", "cutting-edge", "world-class", "synergy", "leverage", "solutions", "paradigm"
-8. Reference at least ONE specific detail from the personalization hooks
-9. The opening sentence must be about THEM and their industry context, not about us
-10. Pain point reference must feel like industry insight from a peer, not a sales pitch
-11. CTA: one soft question only — suggest a 15-minute conversation, never a demo or proposal
-12. Output valid JSON only. No markdown. No text outside the JSON.
+8. NEVER use: "innovative", "cutting-edge", "world-class", "synergy", "leverage", "solutions", "paradigm"
+9. Reference at least ONE specific detail from the personalization hooks
+10. The opening sentence must be about THEM and their industry context, not about us
+11. Pain point reference must feel like industry insight from a peer, not a sales pitch
+12. CTA: one soft question only — suggest a 15-minute conversation, never a demo or proposal
+13. Never write internal or meta language: no "draft", "pending review", "AI-generated", placeholders in brackets like [DRAFT], pipeline status, or anything that implies the recipient is reviewing a robot's homework. This text is sent directly to executives.
+14. Tie the opener to specifics from COMPANY + personalization hooks — one concrete observation (website focus, geography, fleet size, accreditation, founding period, notable service lines) beats generic platitudes.
+15. STRUCTURE: body must read naturally and contain these sections in fluent prose (no bullet lists):
+   - Greeting line
+   - Brief observation about their business context
+   - What we do (1 concise sentence)
+   - How we may add value for their team (1-2 concise sentences, hypothesis framing)
+   - Soft CTA question for a 15-minute conversation
+   - Closing + signature
+16. Output valid JSON only. No markdown. No text outside the JSON.
 
 --- RECEIVER CONTEXT ---
-Receiver first name: {receiver_first_name}
 Receiver domain (company email domain): {receiver_domain}
 Industry: {industry}
 
@@ -44,6 +56,9 @@ Domain: {domain}
 Value proposition: {value_proposition}
 Known pain points we address: {pain_points}
 Notes: {notes}
+
+--- SENDER SIGN-OFF (closing signature name only) ---
+{sender_signoff_name}
 
 --- PERSONALIZATION HOOKS (use at least one) ---
 {personalization_hooks}

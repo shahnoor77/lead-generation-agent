@@ -7,7 +7,6 @@ import { getToken, clearToken, isLoggedIn } from "@/lib/auth";
 const nav = [
   { href: "/runs",     label: "Runs" },
   { href: "/runs/new", label: "New Run" },
-  { href: "/outreach", label: "Outreach" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -67,7 +66,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
-          {email && <span className="text-xs text-gray-400">{email}</span>}
+          <span suppressHydrationWarning className="text-xs text-gray-400">{email ?? ""}</span>
           <button onClick={logout} className="text-xs text-gray-500 hover:text-red-600">
             Sign out
           </button>

@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field
+from sqlalchemy import UniqueConstraint
 
 
 def _utcnow() -> datetime:
@@ -30,6 +31,7 @@ class PipelineRunRecord(SQLModel, table=True):
     total_evaluated: int = 0
     total_rejected_by_icp: int = 0
     total_outreach_drafts: int = 0
+    sandbox_outreach: bool = Field(default=False, description="SMTP routed to sandbox inboxes instead of leads")
     started_at: datetime = Field(default_factory=_utcnow)
     completed_at: Optional[datetime] = None
     errors: str = Field(default="[]")
@@ -351,6 +353,10 @@ class OutreachSentRecord(SQLModel, table=True):
     status: str = "sent"                        # sent | failed | bounced
     campaign_stage: str = "initial"             # initial | followup | reply
     error_message: Optional[str] = None
+    outbound_message_id: Optional[str] = Field(
+        default=None,
+        description="SMTP Message-ID of our outbound message (for threading / reply matching)",
+    )
 
 
 class OutreachReplyRecord(SQLModel, table=True):
@@ -368,6 +374,61 @@ class OutreachReplyRecord(SQLModel, table=True):
     reply_body: str
     intent: str = "neutral"                     # positive | neutral | negative
     received_at: datetime = Field(default_factory=_utcnow)
+
+
+class MeetingHandoffRecord(SQLModel, table=True):
+    """
+    Structured meeting handoff generated from outreach replies.
+    This is the contract for the downstream meeting scheduler agent.
+    """
+    __tablename__ = "meeting_handoffs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    lead_id: str = Field(index=True)
+    receiver_email: str
+    contact_name: Optional[str] = None
+    contact_role: Optional[str] = None
+    meeting_date: Optional[str] = None          # ISO date or free text
+    meeting_time: Optional[str] = None          # Time or free text with timezone
+    timezone: Optional[str] = None
+    notes: Optional[str] = None
+    raw_response: str = ""
+    status: str = "pending_info"                # pending_info | ready_for_scheduler | handed_off
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class SandboxTestInboxRecord(SQLModel, table=True):
+    """
+    Test-only recipient addresses configured by the operator.
+    Used when sandbox_outreach pipeline runs reroute SMTP away from real leads.
+    """
+
+    __tablename__ = "sandbox_test_inboxes"
+    __table_args__ = (UniqueConstraint("user_id", "email", name="uq_sandbox_inbox_user_email"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    email: str = Field(index=True)
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class SandboxLeadRecipientMapRecord(SQLModel, table=True):
+    """
+    One deterministic sandbox inbox per (user, lead).
+    Ensures repeated sends / follow-ups thread to the same test mailbox.
+    """
+
+    __tablename__ = "sandbox_lead_recipient_map"
+    __table_args__ = (UniqueConstraint("user_id", "lead_id", name="uq_sandbox_map_user_lead"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    lead_id: str = Field(index=True)
+    sandbox_email: str
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class OutreachJobRecord(SQLModel, table=True):

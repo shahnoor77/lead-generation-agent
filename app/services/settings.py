@@ -13,6 +13,7 @@ from app.schemas.settings import (
     ICPSettings, OutreachSettings, AIAgentSettings,
 )
 from app.core.logging import get_logger
+from app.core.config import settings as app_settings
 
 logger = get_logger(__name__)
 
@@ -79,13 +80,14 @@ async def save_settings(user_id: int, req: UserSettingsRequest) -> UserSettingsR
         await session.refresh(rec)
 
     logger.info("settings.saved", user_id=user_id)
-    return _to_response(rec)
+    return _to_response(rec, sandbox_available=app_settings.sandbox_outreach_enabled)
 
 
-def _to_response(rec: UserSettingsRecord) -> UserSettingsResponse:
+def _to_response(rec: UserSettingsRecord, *, sandbox_available: bool = True) -> UserSettingsResponse:
     return UserSettingsResponse(
         user_id=rec.user_id,
         updated_at=rec.updated_at.isoformat() if rec.updated_at else None,
+        sandbox_outreach_available=sandbox_available,
         icp=ICPSettings(
             decision_maker_titles=json.loads(rec.icp_decision_maker_titles),
             target_industries=json.loads(rec.icp_target_industries),

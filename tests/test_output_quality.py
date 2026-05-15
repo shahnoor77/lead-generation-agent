@@ -94,12 +94,22 @@ def test_empty_body_fails():
 
 
 def test_outreach_fallback_is_safe():
-    subject, body = outreach_fallback("ACME Corp")
+    subject, body = outreach_fallback(
+        "ACME Corp",
+        industry_hint="logistics",
+        receiver_opener="Sam,",
+        sender_signoff_name="Alex Consultant",
+    )
     assert "ACME Corp" in subject or "ACME Corp" in body
-    assert len(body.split()) >= 20
+    assert len(body.split()) >= 35
+    assert "quick question" not in subject.lower()
+    assert "Best regards" in body or "best regards" in body.lower()
+    assert "Alex Consultant" in body
     # Fallback must not contain spam openers
     assert "i hope this email" not in body.lower()
     assert "i wanted to reach out" not in body.lower()
+    v = validate_outreach(subject, body, "ACME Corp")
+    assert v.passed, v.issues
 
 
 # ── ICP reasoning validation ──────────────────────────────────────────────────

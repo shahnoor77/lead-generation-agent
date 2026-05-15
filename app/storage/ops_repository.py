@@ -21,6 +21,7 @@ from app.storage.models import (
     LeadLifecycleHistoryRecord,
     FinalizedDraftRecord,
     EnrichedLeadRecord,
+    OutreachSentRecord,
 )
 
 
@@ -48,7 +49,7 @@ class OpsRepository:
 
     # ── Leads for a run ───────────────────────────────────────────────────────
 
-    async def get_leads_for_run(self, run_id: str) -> list[dict]:
+    async def get_leads_for_run(self, run_id: str, user_id: int | None = None) -> list[dict]:
         """
         Returns evaluated leads joined with lifecycle status and approval status.
         One query per table — no ORM joins to keep it simple and fast.
@@ -88,21 +89,40 @@ class OpsRepository:
             )
             raw_map = {r.lead_id: r for r in raw_result.scalars().all()}
 
+            enr_result = await session.execute(
+                select(EnrichedLeadRecord)
+                .where(EnrichedLeadRecord.lead_id.in_(lead_ids))
+            )
+            enriched_map = {r.lead_id: r for r in enr_result.scalars().all()}
+
+            outreach_sent_ids: set[str] = set()
+            if user_id is not None:
+                sent_q = await session.execute(
+                    select(OutreachSentRecord.lead_id)
+                    .where(OutreachSentRecord.user_id == user_id)
+                    .where(OutreachSentRecord.lead_id.in_(lead_ids))
+                    .where(OutreachSentRecord.status == "sent")
+                )
+                outreach_sent_ids = {row[0] for row in sent_q.all()}
+
         rows = []
         for ev in evaluated:
             lc = lifecycle_map.get(ev.lead_id)
             fd = finalized_map.get(ev.lead_id)
             raw = raw_map.get(ev.lead_id)
+            enr = enriched_map.get(ev.lead_id)
             rows.append({
                 "lead_id": ev.lead_id,
                 "company_name": ev.company_name,
                 "website": ev.website,
                 "location": ev.location,
+                "contact_email": enr.contact_email if enr else None,
                 "fit_score": ev.fit_score,
                 "decision": ev.decision,
                 "current_status": lc.current_status if lc else None,
                 "approval_status": fd.approval_status if fd else None,
                 "discovered_at": raw.discovered_at if raw else ev.evaluated_at,
+                "outreach_sent": ev.lead_id in outreach_sent_ids if user_id is not None else False,
             })
         return rows
 

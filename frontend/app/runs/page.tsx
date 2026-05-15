@@ -58,6 +58,11 @@ export default function RunsPage() {
                   <td className="py-3 pr-4 font-medium text-gray-900">
                     {run.industries}
                     {run.domain && <span className="ml-1 text-gray-400 font-normal">· {run.domain}</span>}
+                    {run.sandbox_outreach && (
+                      <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
+                        sandbox
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 pr-4 text-gray-600">
                     {run.location}{run.country ? `, ${run.country}` : ""}

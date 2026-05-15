@@ -1,30 +1,28 @@
 """
 Outreach Draft Generator — tone-aware, name-aware, domain-aware, auto-subject.
 
-Improvements:
-- Extracts receiver first name from key_people or contact_email
-- Detects receiver domain from contact_email for personalization
-- Passes industry context into prompt for specific subject lines
-- Uses sender details from finalized draft if available
-- Applies tone from user's AI agent settings
+- Receiver greeting: real first name when verified; otherwise neutral / team @ company (no bogus "Dear Intermediate,")
+- Sender sign-off: user's saved sender display name or settings sender domain / account email
+- Industry context in subject; tone from AI agent settings
 """
 
 from __future__ import annotations
 import json
-import re
 from urllib.parse import urlparse
 
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas import EnrichedLead, EvaluatedLead, BusinessContext, OutreachOutput, OutreachLanguage
 from app.utils.prompt_loader import load_prompt
 from app.utils.llm_client import llm_chat
 from app.modules.outreach.pain_inference import infer_pain_points
 from app.modules.quality.output_quality_validator import validate_outreach, outreach_fallback
+from app.modules.outreach.email_sanitize import clean_outreach_copy
+from app.modules.outreach.sender_receiver_naming import (
+    load_sender_signoff_name,
+    plan_receiver_outreach,
+)
 
 logger = get_logger(__name__)
-
-_FALLBACK_SUBJECT_PREFIX = "[DRAFT NEEDED] "
 
 _TONE_INSTRUCTIONS: dict[str, str] = {
     "executive-direct": (
@@ -33,9 +31,9 @@ _TONE_INSTRUCTIONS: dict[str, str] = {
         "Assume the reader is a busy C-level executive."
     ),
     "formal-business": (
-        "Write in a professional, warm business tone. "
-        "Respectful and credible. Appropriate for senior managers. "
-        "Not overly formal, not casual."
+        "Write in a professional, human, formal business tone. "
+        "Use clear, respectful language suitable for senior decision-makers. "
+        "Avoid sales jargon and keep transitions natural."
     ),
     "problem-specific": (
         "Write in a consultative, problem-focused tone. "
@@ -43,27 +41,6 @@ _TONE_INSTRUCTIONS: dict[str, str] = {
         "Position as a knowledgeable peer, not a salesperson."
     ),
 }
-
-
-def _extract_first_name(full_name: str | None) -> str:
-    if not full_name or not full_name.strip():
-        return "there"
-    cleaned = re.sub(r"^(Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Eng\.?|Prof\.?)\s+", "", full_name.strip(), flags=re.IGNORECASE)
-    parts = cleaned.split()
-    return parts[0] if parts else "there"
-
-
-def _extract_receiver_name(enriched: EnrichedLead) -> str:
-    if enriched.key_people:
-        return _extract_first_name(enriched.key_people[0])
-    # Try to infer from email local part: john.smith@company.com → John
-    if enriched.contact_email:
-        local = str(enriched.contact_email).split("@")[0]
-        # Remove numbers and dots, take first word
-        name_part = re.sub(r"[0-9_\-]", ".", local).split(".")[0]
-        if name_part and len(name_part) > 1:
-            return name_part.capitalize()
-    return "there"
 
 
 def _extract_receiver_domain(enriched: EnrichedLead) -> str:
@@ -115,13 +92,16 @@ class OutreachGenerator:
             except Exception:
                 pass
 
-        receiver_first_name = _extract_receiver_name(enriched)
+        recv_plan = plan_receiver_outreach(enriched, evaluated.company_name)
+        sender_signoff_name = await load_sender_signoff_name(user_id)
         receiver_domain = _extract_receiver_domain(enriched)
         industry = enriched.industry or (context.industries[0] if context.industries else "")
 
         prompt = load_prompt("outreach_draft").format(
             company_name=evaluated.company_name,
-            receiver_first_name=receiver_first_name,
+            receiver_opening_instruction=recv_plan.opening_instruction,
+            receiver_first_name_hint=recv_plan.first_name_hint or "—",
+            sender_signoff_name=sender_signoff_name,
             receiver_domain=receiver_domain or "N/A",
             industry=industry,
             website_summary=enriched.summary or evaluated.llm_reasoning or "N/A",
@@ -163,6 +143,7 @@ class OutreachGenerator:
                 data = json.loads(raw)
                 subject = str(data.get("subject_line", "")).strip()[:80]
                 body = self._trim_to_words(str(data.get("message_body", "")).strip(), 250)
+                subject, body = clean_outreach_copy(subject, body, for_send=False)
             except json.JSONDecodeError:
                 logger.warning("outreach.json_parse_failed", lead_id=str(evaluated.lead_id), raw=raw[:200])
                 is_fallback = True
@@ -179,14 +160,23 @@ class OutreachGenerator:
                     logger.warning("outreach.quality_failed_autonomous_retry",
                                    lead_id=str(evaluated.lead_id), issues=result.issues)
                     subject, body = await self._retry_autonomous(prompt, evaluated.company_name)
-                    is_fallback = not subject
+                    if subject and body:
+                        retry_check = validate_outreach(subject, body, evaluated.company_name)
+                        is_fallback = not retry_check.passed
+                    else:
+                        is_fallback = True
                 else:
                     logger.warning("outreach.quality_failed", lead_id=str(evaluated.lead_id), issues=result.issues)
                     is_fallback = True
 
         if is_fallback or not subject or not body:
-            subject, body = outreach_fallback(evaluated.company_name)
-            subject = _FALLBACK_SUBJECT_PREFIX + subject
+            subject, body = outreach_fallback(
+                evaluated.company_name,
+                industry_hint=industry or None,
+                receiver_opener=recv_plan.opener_for_fallback,
+                sender_signoff_name=sender_signoff_name,
+            )
+            subject, body = clean_outreach_copy(subject, body, for_send=False)
             logger.info("outreach.fallback_used", lead_id=str(evaluated.lead_id), autonomous=autonomous)
 
         return OutreachOutput(
@@ -211,7 +201,9 @@ class OutreachGenerator:
                         "content": (
                             "You are a JSON-only responder. Output ONLY valid JSON. "
                             "The email must be professional, specific, and under 180 words. "
-                            "No generic phrases. No filler. Subject must reference the company's industry."
+                            "No generic phrases, no filler, no internal words (draft/pending review/AI). "
+                            "Subject must reference the company's industry or operations. "
+                            "First line must use a concrete detail from the user prompt's hooks."
                         ),
                     },
                     {"role": "user", "content": original_prompt},
@@ -224,7 +216,7 @@ class OutreachGenerator:
             data = json.loads(raw)
             subject = str(data.get("subject_line", "")).strip()[:80]
             body = self._trim_to_words(str(data.get("message_body", "")).strip(), 250)
-            return subject, body
+            return clean_outreach_copy(subject, body, for_send=False)
         except Exception:
             return "", ""
 

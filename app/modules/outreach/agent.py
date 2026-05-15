@@ -21,15 +21,22 @@ Safety:
 
 from __future__ import annotations
 import asyncio
+import hashlib
 import imaplib
+import json
+import os
+import re
+import secrets
 import smtplib
 import ssl
+from functools import partial
 from datetime import datetime, date, timedelta
+import time
 from email import message_from_bytes
 from email.header import decode_header, make_header
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.utils import parseaddr
+from email.utils import parseaddr, make_msgid
 
 from sqlmodel import select
 from app.storage.database import AsyncSessionLocal
@@ -37,18 +44,62 @@ from app.storage.models import (
     FinalizedDraftRecord,
     OutreachSentRecord,
     OutreachReplyRecord,
+    MeetingHandoffRecord,
     SenderEmailAccountRecord,
     LeadLifecycleRecord,
 )
 from app.schemas.lifecycle import LeadLifecycleStatus
+from app.modules.outreach.email_sanitize import clean_outreach_copy
 from app.utils.encryption import decrypt
 from app.utils.llm_client import llm_chat
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# ── Inbox scanning (recent mail, threading) ──────────────────────────────────
+_IMAP_LOOKBACK_DAYS = int(os.environ.get("OUTREACH_IMAP_LOOKBACK_DAYS", "21"))
+_IMAP_MAX_MESSAGES = int(os.environ.get("OUTREACH_IMAP_MAX_MESSAGES_PER_POLL", "400"))
+# Concurrent handlers per IMAP poll — faster auto-replies without extra IMAP round-trips.
+_INBOX_PARALLEL_WORKERS = max(1, min(32, int(os.environ.get("OUTREACH_INBOX_PARALLEL_WORKERS", "5"))))
+
+# Skip IMAP polls for a user after fatal auth failures (reduces Gmail lockouts / log spam).
+_OUTREACH_IMAP_AUTH_COOLDOWN_SEC = float(os.environ.get("OUTREACH_IMAP_AUTH_COOLDOWN_SEC", "900"))
+_imap_auth_cooldown_until: dict[int, float] = {}
 
 # ── SMTP sender ───────────────────────────────────────────────────────────────
+
+def _domain_from_email(addr: str) -> str:
+    return addr.split("@")[-1].strip().lower() if "@" in addr else "localhost"
+
+
+def _imap_auth_error(e: BaseException) -> bool:
+    """Heuristic: IMAP login rejected (bad password / app password / account security)."""
+    blob = f"{e!r} {e}".upper()
+    return (
+        "AUTHENTICATIONFAILED" in blob
+        or "INVALID CREDENTIALS" in blob
+        or "535" in blob
+        or "AUTHENTICATION FAILED" in blob
+    )
+
+
+def _imap_in_auth_cooldown(user_id: int) -> bool:
+    until = _imap_auth_cooldown_until.get(user_id)
+    return until is not None and time.time() < until
+
+
+def _set_imap_auth_cooldown(user_id: int) -> None:
+    _imap_auth_cooldown_until[user_id] = time.time() + _OUTREACH_IMAP_AUTH_COOLDOWN_SEC
+
+
+def _format_message_id_header(mid: str | None) -> str | None:
+    if not mid or not str(mid).strip():
+        return None
+    s = str(mid).strip()
+    if s.startswith("<") and s.endswith(">"):
+        return s
+    return f"<{s.strip('<>')}>"
+
 
 def _send_smtp(
     smtp_host: str,
@@ -61,12 +112,25 @@ def _send_smtp(
     to_email: str,
     subject: str,
     body: str,
-) -> None:
-    """Synchronous SMTP send — run in executor to avoid blocking."""
+    *,
+    in_reply_to: str | None = None,
+    references: str | None = None,
+) -> str:
+    """
+    Synchronous SMTP send — run in executor to avoid blocking.
+    Returns the Message-ID we placed on the outbound mail (for IMAP threading).
+    """
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"{from_name} <{from_email}>"
     msg["To"] = to_email
+    msg_id = make_msgid(idstring=secrets.token_hex(10), domain=_domain_from_email(from_email))
+    msg["Message-ID"] = msg_id
+    irt = _format_message_id_header(in_reply_to)
+    if irt:
+        msg["In-Reply-To"] = irt
+    if references:
+        msg["References"] = references.strip()
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
     context = ssl.create_default_context()
@@ -80,6 +144,7 @@ def _send_smtp(
         with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context) as server:
             server.login(smtp_username, smtp_password)
             server.sendmail(from_email, to_email, msg.as_string())
+    return msg_id
 
 
 async def _send_email_async(
@@ -87,12 +152,20 @@ async def _send_email_async(
     smtp_password: str, use_tls: bool,
     from_email: str, from_name: str,
     to_email: str, subject: str, body: str,
-) -> None:
+    *,
+    in_reply_to: str | None = None,
+    references: str | None = None,
+) -> str:
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(
-        None, _send_smtp,
-        smtp_host, smtp_port, smtp_username, smtp_password, use_tls,
-        from_email, from_name, to_email, subject, body,
+    return await loop.run_in_executor(
+        None,
+        partial(
+            _send_smtp,
+            smtp_host, smtp_port, smtp_username, smtp_password, use_tls,
+            from_email, from_name, to_email, subject, body,
+            in_reply_to=in_reply_to,
+            references=references,
+        ),
     )
 
 
@@ -138,6 +211,7 @@ async def _log_sent(
     receiver_email: str, subject: str,
     status: str = "sent", error: str | None = None,
     campaign_stage: str = "initial",
+    outbound_message_id: str | None = None,
 ) -> None:
     async with AsyncSessionLocal() as session:
         session.add(OutreachSentRecord(
@@ -150,6 +224,7 @@ async def _log_sent(
             status=status,
             campaign_stage=campaign_stage,
             error_message=error,
+            outbound_message_id=outbound_message_id.strip() if outbound_message_id else None,
         ))
         await session.commit()
 
@@ -225,236 +300,58 @@ def _classify_reply_intent(text: str) -> str:
 
 
 def _build_followup_subject(initial_subject: str, followup_number: int) -> str:
+    """Generate subject for follow-up email."""
     if initial_subject.lower().startswith("re:"):
         return initial_subject
     return f"Re: {initial_subject} (follow-up {followup_number})"
 
 
 def _build_followup_body(draft: FinalizedDraftRecord, followup_number: int) -> str:
-    return (
-        f"Hi {draft.receiver_name},\n\n"
-        f"Following up on my previous email in case it got buried. "
-        f"I thought this might still be relevant for {draft.company_name}.\n\n"
-        "If helpful, I can share a short, tailored plan in one call.\n\n"
-        f"Best,\n{draft.sender_name}"
+    """Generate follow-up email with formal greeting — integrated with EmailFormatter logic."""
+    receiver_name = (draft.receiver_name or "there").strip()
+    sender_name = (draft.sender_name or "Our team").strip()
+    company_name = draft.company_name
+    
+    # Formal greeting based on receiver name (same logic as EmailFormatter)
+    if receiver_name.lower() == "there" or not receiver_name:
+        greeting = f"Dear {company_name} Team,"
+    elif receiver_name.lower().startswith("dear ") or receiver_name.lower().startswith("mr.") or receiver_name.lower().startswith("ms."):
+        # Already formal
+        greeting = f"Dear {receiver_name},"
+    else:
+        # Personal name — use formal greeting
+        parts = receiver_name.split()
+        last_name = parts[-1] if len(parts) > 1 else receiver_name
+        greeting = f"Dear {last_name},"
+    
+    body = (
+        f"{greeting}\n\n"
+        f"I wanted to follow up on my previous email regarding operational efficiency and coordination "
+        f"improvements for {company_name}.\n\n"
+        f"I understand things move quickly on your end. If a brief 15-minute conversation would be helpful "
+        f"to explore how similar organizations have tackled this, I'm happy to make time.\n\n"
+        f"Best regards,\n{sender_name}"
     )
+    return body
 
 
-async def _generate_reply_body(
-    draft: FinalizedDraftRecord,
-    reply_body: str,
-    user_id: int,
-) -> str:
-    prompt = (
-        "You are a B2B sales assistant. Draft a concise, polite email response "
-        "to the prospect message. Keep it under 150 words, clear next step, no hype.\n\n"
-        f"Prospect message:\n{reply_body}\n\n"
-        f"Our original context: company={draft.company_name}, sender={draft.sender_name}, receiver={draft.receiver_name}"
-    )
-    try:
-        response = await llm_chat(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=220,
-            temperature=0.2,
-            user_id=user_id,
-        )
-        text = (response.choices[0].message.content or "").strip()
-        return text or "Thanks for your reply. Happy to share more details on a quick call."
-    except Exception:
-        return "Thanks for your reply. Happy to share more details on a quick call."
-
-
-async def _already_processed_reply(user_id: int, message_id: str) -> bool:
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(OutreachReplyRecord)
-            .where(OutreachReplyRecord.user_id == user_id)
-            .where(OutreachReplyRecord.message_id == message_id)
-            .limit(1)
-        )
-        return result.scalar_one_or_none() is not None
-
-
-async def _save_reply(
-    user_id: int,
-    lead_id: str,
-    receiver_email: str,
-    message_id: str,
-    subject: str,
-    body: str,
-    intent: str,
-) -> None:
-    async with AsyncSessionLocal() as session:
-        session.add(OutreachReplyRecord(
-            user_id=user_id,
-            lead_id=lead_id,
-            receiver_email=receiver_email,
-            message_id=message_id,
-            reply_subject=subject,
-            reply_body=body[:4000],
-            intent=intent,
-        ))
-        await session.commit()
-
-
-async def _get_last_outbound_by_receiver(user_id: int, receiver_email: str) -> OutreachSentRecord | None:
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(OutreachSentRecord)
-            .where(OutreachSentRecord.user_id == user_id)
-            .where(OutreachSentRecord.receiver_email == receiver_email)
-            .where(OutreachSentRecord.status == "sent")
-            .order_by(OutreachSentRecord.sent_at.desc())
-            .limit(1)
-        )
-        return result.scalar_one_or_none()
-
-
-def _fetch_inbox_messages(
-    imap_host: str,
-    imap_port: int,
-    username: str,
-    password: str,
-    use_ssl: bool,
-) -> list[dict]:
-    messages: list[dict] = []
-    client = imaplib.IMAP4_SSL(imap_host, imap_port) if use_ssl else imaplib.IMAP4(imap_host, imap_port)
-    try:
-        client.login(username, password)
-        client.select("INBOX")
-        status, data = client.search(None, "UNSEEN")
-        if status != "OK":
-            return messages
-        for num in data[0].split():
-            status, msg_data = client.fetch(num, "(RFC822)")
-            if status != "OK" or not msg_data or not msg_data[0]:
-                continue
-            raw = msg_data[0][1]
-            msg = message_from_bytes(raw)
-            frm = parseaddr(msg.get("From", ""))[1].lower()
-            subject = str(make_header(decode_header(msg.get("Subject", ""))))
-            message_id = (msg.get("Message-ID", "") or "").strip()
-            body = _extract_text_body(msg).strip()
-            messages.append({
-                "from_email": frm,
-                "subject": subject,
-                "message_id": message_id,
-                "body": body,
-            })
-    finally:
-        try:
-            client.logout()
-        except Exception:
-            pass
-    return messages
-
-
-async def _process_inbox_replies(
-    user_id: int,
-    sender: SenderEmailAccountRecord,
-    smtp_password: str,
-) -> dict:
-    imap_host = sender.imap_host or _imap_host_from_smtp(sender.smtp_host)
-    imap_port = sender.imap_port or 993
-    imap_username = sender.imap_username or sender.smtp_username
-    imap_password = decrypt(sender.imap_password_encrypted) if sender.imap_password_encrypted else smtp_password
-    processed = 0
-    closed = 0
-    auto_replied = 0
-    try:
-        loop = asyncio.get_event_loop()
-        inbox_messages = await loop.run_in_executor(
-            None,
-            _fetch_inbox_messages,
-            imap_host,
-            imap_port,
-            imap_username,
-            imap_password,
-            sender.imap_use_ssl,
-        )
-    except Exception as e:
-        logger.warning("outreach_agent.imap_failed", user_id=user_id, error=str(e)[:200])
-        return {"processed": 0, "closed": 0, "auto_replied": 0, "reason": "imap_failed"}
-
-    for msg in inbox_messages:
-        from_email = (msg.get("from_email") or "").lower()
-        if not from_email:
-            continue
-        message_id = (msg.get("message_id") or "").strip() or f"generated:{from_email}:{hash(msg.get('body', ''))}"
-        if await _already_processed_reply(user_id, message_id):
-            continue
-
-        last_outbound = await _get_last_outbound_by_receiver(user_id, from_email)
-        if not last_outbound:
-            continue
-
-        body = msg.get("body", "").strip()
-        intent = _classify_reply_intent(body)
-        await _save_reply(
-            user_id=user_id,
-            lead_id=last_outbound.lead_id,
-            receiver_email=from_email,
-            message_id=message_id,
-            subject=msg.get("subject", ""),
-            body=body,
-            intent=intent,
-        )
-        processed += 1
-
-        if intent == "negative":
-            await _set_lifecycle_status(
-                last_outbound.lead_id,
-                LeadLifecycleStatus.LOST,
-                "followup_agent",
-                notes="Prospect responded negatively (not interested / opt-out).",
-            )
-            closed += 1
-            continue
-
-        await _set_lifecycle_status(
-            last_outbound.lead_id,
-            LeadLifecycleStatus.REPLIED,
-            "followup_agent",
-            notes=f"Prospect replied ({intent}).",
-        )
-        if intent == "neutral":
-            async with AsyncSessionLocal() as session:
-                draft = await session.get(FinalizedDraftRecord, last_outbound.lead_id)
-            if draft:
-                auto_body = await _generate_reply_body(draft, body, user_id)
-                try:
-                    await _send_email_async(
-                        smtp_host=sender.smtp_host,
-                        smtp_port=sender.smtp_port,
-                        smtp_username=sender.smtp_username,
-                        smtp_password=smtp_password,
-                        use_tls=sender.use_tls,
-                        from_email=sender.email_address,
-                        from_name=sender.display_name or sender.email_address,
-                        to_email=from_email,
-                        subject=msg.get("subject", "") or f"Re: {draft.final_subject}",
-                        body=auto_body,
-                    )
-                    await _log_sent(
-                        user_id,
-                        last_outbound.lead_id,
-                        sender.email_address,
-                        from_email,
-                        msg.get("subject", "") or f"Re: {draft.final_subject}",
-                        campaign_stage="reply",
-                    )
-                    auto_replied += 1
-                except Exception as e:
-                    logger.warning("outreach_agent.auto_reply_failed", lead_id=last_outbound.lead_id, error=str(e)[:200])
-    return {"processed": processed, "closed": closed, "auto_replied": auto_replied}
-
-
-# ── Main agent run ────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# THREADING FIX: Follow-ups now properly reference the initial send
+# ──────────────────────────────────────────────────────────────────────────────
 
 async def run_outreach_job(user_id: int) -> dict:
     """
     Execute one outreach job cycle for a user.
-    Returns a summary dict with sent/skipped/failed counts.
+    
+    Logic:
+      1. Load approved finalized drafts
+      2. For each draft:
+         - If NO initial send → send initial email
+         - If initial sent + NO reply + elapsed >= 48h → send follow-up (thread to initial)
+         - If follow-ups sent >= 4 times AND no reply + 7 days elapsed → mark LOST
+         - If positive reply → extract meeting details + handoff
+         - If negative reply → mark LOST
+         - If neutral reply → send auto-reply
     """
     from app.services.settings import get_settings
 
@@ -475,21 +372,27 @@ async def run_outreach_job(user_id: int) -> dict:
         logger.warning("outreach_agent.no_sender_account", user_id=user_id)
         return {"sent": 0, "skipped": 0, "failed": 0, "reason": "no_sender_account"}
 
-    # Check send window
+    smtp_password = decrypt(sender.smtp_password_encrypted)
+
+    # Inbox replies: run regardless of send window
+    reply_summary: dict = {"processed": 0, "closed": 0, "auto_replied": 0}
+    if outreach_cfg.reply_check_enabled:
+        reply_summary = await _process_inbox_replies(user_id, sender, smtp_password)
+
+    # Outbound sends respect send window only
     if not _in_send_window(outreach_cfg.send_window_start, outreach_cfg.send_window_end):
         logger.info("outreach_agent.outside_window", user_id=user_id)
-        return {"sent": 0, "skipped": 0, "failed": 0, "reason": "outside_send_window"}
+        return {"sent": 0, "skipped": 0, "failed": 0, "reason": "outside_send_window", "replies": reply_summary}
 
     # Check daily limit
     sent_today = await _get_sent_today(user_id, sender.email_address)
     remaining = min(sender.daily_limit, outreach_cfg.daily_send_limit) - sent_today
     if remaining <= 0:
         logger.info("outreach_agent.daily_limit_reached", user_id=user_id, sent_today=sent_today)
-        return {"sent": 0, "skipped": 0, "failed": 0, "reason": "daily_limit_reached"}
+        return {"sent": 0, "skipped": 0, "failed": 0, "reason": "daily_limit_reached", "replies": reply_summary}
 
     # Load approved finalized drafts for this user
     async with AsyncSessionLocal() as session:
-        # Get all pipeline runs for this user
         from app.storage.models import PipelineRunRecord
         runs_result = await session.execute(
             select(PipelineRunRecord.id).where(PipelineRunRecord.user_id == user_id)
@@ -497,9 +400,8 @@ async def run_outreach_job(user_id: int) -> dict:
         run_ids = [r[0] for r in runs_result.all()]
 
         if not run_ids:
-            return {"sent": 0, "skipped": 0, "failed": 0, "reason": "no_runs"}
+            return {"sent": 0, "skipped": 0, "failed": 0, "reason": "no_runs", "replies": reply_summary}
 
-        # Get approved drafts from those runs
         drafts_result = await session.execute(
             select(FinalizedDraftRecord)
             .where(FinalizedDraftRecord.pipeline_run_id.in_(run_ids))
@@ -507,19 +409,37 @@ async def run_outreach_job(user_id: int) -> dict:
         )
         approved_drafts = list(drafts_result.scalars().all())
 
-    smtp_password = decrypt(sender.smtp_password_encrypted)
     sent = skipped = failed = 0
 
-    reply_summary = {"processed": 0, "closed": 0, "auto_replied": 0}
-    if outreach_cfg.reply_check_enabled:
-        reply_summary = await _process_inbox_replies(user_id, sender, smtp_password)
+    from app.services.sandbox_outreach import (
+        SandboxConfigError,
+        resolve_smtp_receiver,
+        is_sandbox_pipeline_run,
+    )
 
     for draft in approved_drafts:
         if sent >= remaining:
             break
 
-        receiver_email = draft.receiver_email
-        if not receiver_email:
+        natural_receiver = (draft.receiver_email or "").strip()
+        if not natural_receiver:
+            skipped += 1
+            continue
+
+        sandbox_pipeline = await is_sandbox_pipeline_run(user_id, draft.pipeline_run_id)
+        try:
+            receiver_email = await resolve_smtp_receiver(
+                user_id,
+                draft.lead_id,
+                natural_receiver,
+                sandbox_pipeline=sandbox_pipeline,
+            )
+        except SandboxConfigError as err:
+            logger.warning(
+                "outreach_agent.sandbox_resolve_skipped",
+                lead_id=draft.lead_id,
+                error=str(err),
+            )
             skipped += 1
             continue
 
@@ -536,7 +456,7 @@ async def run_outreach_job(user_id: int) -> dict:
             skipped += 1
             continue
 
-        # Initial send or follow-up decision
+        # ── Sent history for this lead ────────────────────────────────────────
         async with AsyncSessionLocal() as session:
             sent_result = await session.execute(
                 select(OutreachSentRecord)
@@ -548,45 +468,91 @@ async def run_outreach_job(user_id: int) -> dict:
             )
             sent_rows = list(sent_result.scalars().all())
 
+            # Check if any reply received (positive/negative/neutral)
+            reply_result = await session.execute(
+                select(OutreachReplyRecord)
+                .where(OutreachReplyRecord.user_id == user_id)
+                .where(OutreachReplyRecord.lead_id == draft.lead_id)
+                .where(OutreachReplyRecord.receiver_email == receiver_email)
+            )
+            reply_rows = list(reply_result.scalars().all())
+
+        has_reply = len(reply_rows) > 0
+        latest_reply = reply_rows[0] if reply_rows else None
+        
         followup_count = sum(1 for r in sent_rows if r.campaign_stage == "followup")
-        has_initial = any(r.campaign_stage == "initial" for r in sent_rows)
+        initial_count = sum(1 for r in sent_rows if r.campaign_stage == "initial")
+        has_initial = initial_count > 0
         last_sent = sent_rows[0] if sent_rows else None
 
         should_send = False
         subject = draft.final_subject
         body = draft.final_body
         stage = "initial"
+        in_reply_to_mid: str | None = None
+        references: str | None = None
 
+        # ── Logic: Initial send ───────────────────────────────────────────────
         if not has_initial:
             should_send = True
-        elif outreach_cfg.followup_enabled:
-            max_attempts = outreach_cfg.followup_max_attempts
+
+        # ── Logic: Follow-ups (48h interval) ──────────────────────────────────
+        elif outreach_cfg.followup_enabled and not has_reply:
+            max_attempts = outreach_cfg.followup_max_attempts  # default: 4
+            
+            # Check if we've hit max follow-ups
             if followup_count >= max_attempts:
-                await _set_lifecycle_status(
-                    draft.lead_id,
-                    LeadLifecycleStatus.LOST,
-                    "followup_agent",
-                    notes=f"No reply after {followup_count} follow-ups.",
-                )
-                skipped += 1
-                continue
-            if not last_sent:
-                skipped += 1
-                continue
-            elapsed = datetime.utcnow() - last_sent.sent_at
-            if elapsed >= timedelta(hours=outreach_cfg.followup_interval_hours):
-                should_send = True
-                stage = "followup"
-                subject = _build_followup_subject(draft.final_subject, followup_count + 1)
-                body = _build_followup_body(draft, followup_count + 1)
+                # Check if 7 days have passed since initial send
+                initial_send = next((r for r in sent_rows if r.campaign_stage == "initial"), None)
+                if initial_send:
+                    elapsed_since_initial = datetime.utcnow() - initial_send.sent_at
+                    if elapsed_since_initial >= timedelta(days=7):
+                        # Mark as LOST — no reply after 7 days + max follow-ups
+                        await _set_lifecycle_status(
+                            draft.lead_id,
+                            LeadLifecycleStatus.LOST,
+                            "followup_agent",
+                            notes=f"No reply after {followup_count} follow-ups over 7+ days. Lead marked lost.",
+                        )
+                        logger.info(
+                            "outreach_agent.lead_marked_lost",
+                            lead_id=draft.lead_id,
+                            reason="no_reply_7days",
+                            followup_count=followup_count,
+                        )
+                        skipped += 1
+                        continue
+            
+            # Check time since last send for follow-up timing
+            if last_sent:
+                elapsed = datetime.utcnow() - last_sent.sent_at
+                if elapsed >= timedelta(hours=outreach_cfg.followup_interval_hours):
+                    if followup_count < max_attempts:
+                        should_send = True
+                        stage = "followup"
+                        subject = _build_followup_subject(draft.final_subject, followup_count + 1)
+                        body = _build_followup_body(draft, followup_count + 1)
+                        
+                        # ── THREADING FIX: Follow-up threads back to initial send ────
+                        initial_send = next((r for r in sent_rows if r.campaign_stage == "initial"), None)
+                        if initial_send and initial_send.outbound_message_id:
+                            in_reply_to_mid = initial_send.outbound_message_id.strip()
+                            # Build references chain: initial + all follow-ups
+                            refs_chain = [in_reply_to_mid]
+                            for fo in [r for r in sent_rows if r.campaign_stage == "followup"]:
+                                if fo.outbound_message_id and fo.outbound_message_id not in refs_chain:
+                                    refs_chain.append(fo.outbound_message_id.strip())
+                            references = " ".join(f"<{_canonical_mid(mid)}>" for mid in refs_chain if mid)
 
         if not should_send:
             skipped += 1
             continue
 
+        subject, body = clean_outreach_copy(subject, body, for_send=True)
+
         # Send
         try:
-            await _send_email_async(
+            outbound_mid = await _send_email_async(
                 smtp_host=sender.smtp_host,
                 smtp_port=sender.smtp_port,
                 smtp_username=sender.smtp_username,
@@ -597,18 +563,29 @@ async def run_outreach_job(user_id: int) -> dict:
                 to_email=receiver_email,
                 subject=subject,
                 body=body,
+                in_reply_to=in_reply_to_mid,
+                references=references,
             )
             await _log_sent(
                 user_id, draft.lead_id, sender.email_address, receiver_email, subject,
                 campaign_stage=stage,
+                outbound_message_id=outbound_mid,
             )
             await _mark_contacted(draft.lead_id, user_id)
             sent += 1
-            logger.info("outreach_agent.sent", lead_id=draft.lead_id, to=receiver_email, stage=stage)
+            logger.info(
+                "outreach_agent.sent",
+                lead_id=draft.lead_id,
+                to=receiver_email,
+                stage=stage,
+                followup_num=(followup_count + 1 if stage == "followup" else 0),
+            )
 
         except Exception as e:
-            await _log_sent(user_id, draft.lead_id, sender.email_address, receiver_email,
-                           subject, status="failed", error=str(e)[:500], campaign_stage=stage)
+            await _log_sent(
+                user_id, draft.lead_id, sender.email_address, receiver_email,
+                subject, status="failed", error=str(e)[:500], campaign_stage=stage,
+            )
             failed += 1
             logger.error("outreach_agent.send_failed", lead_id=draft.lead_id, error=str(e)[:200])
 

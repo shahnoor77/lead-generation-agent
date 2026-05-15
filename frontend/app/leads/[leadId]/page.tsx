@@ -67,6 +67,9 @@ export default function LeadDetailPage() {
           <DL label="Category" value={lead.company.category} />
           <DL label="Address" value={lead.company.address} />
           <DL label="Phone" value={lead.company.phone} />
+          {lead.company.contact_email && (
+            <DL label="Discovered email" value={lead.company.contact_email} />
+          )}
           {lead.company.rating != null && <DL label="Rating" value={`${lead.company.rating} (${lead.company.review_count} reviews)`} />}
         </dl>
       </Section>
@@ -161,10 +164,10 @@ export default function LeadDetailPage() {
             ) : (
               <div className="bg-gray-50 border border-dashed border-gray-200 rounded-md p-4 text-center">
                 <p className="text-xs text-gray-400">
-                  In <strong>semi-autonomous</strong> mode, use the form below to edit and finalize this draft before sending.
+                  Edit and finalize the draft below — outbound uses the enriched contact email automatically.
                 </p>
                 <p className="text-xs text-gray-300 mt-1">
-                  In <strong>autonomous</strong> mode, emails are sent directly without this step.
+                  Sending runs through the outreach job (no manual send from the board).
                 </p>
               </div>
             )}
@@ -203,15 +206,16 @@ export default function LeadDetailPage() {
 
 function FinalizeForm({ lead, onSuccess }: { lead: LeadDetail; onSuccess: () => void }) {
   const fd = lead.final_draft;
+  const resolvedOutboundEmail =
+    (lead.company.contact_email || fd?.receiver?.receiver_email || "").trim();
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [f, setF] = useState({
     final_subject: fd?.subject ?? lead.generated_draft?.subject ?? "",
     final_body: fd?.body ?? lead.generated_draft?.body ?? "",
     finalized_by: fd?.finalized_by ?? "",
-    receiver_name: fd?.receiver?.receiver_name ?? "",
+    receiver_name: fd?.receiver?.receiver_name ?? lead.company.company_name ?? "",
     receiver_role: fd?.receiver?.receiver_role ?? "",
-    receiver_email: fd?.receiver?.receiver_email ?? "",
     linkedin_url: fd?.receiver?.linkedin_url ?? "",
     preferred_contact_method: fd?.receiver?.preferred_contact_method ?? "email",
     sender_name: fd?.sender?.sender_name ?? "",
@@ -226,8 +230,12 @@ function FinalizeForm({ lead, onSuccess }: { lead: LeadDetail; onSuccess: () => 
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!f.receiver_name || !f.receiver_email || !f.sender_name || !f.sender_email) {
-      setErr("Receiver name/email and sender name/email are required.");
+    if (!f.receiver_name || !f.sender_name || !f.sender_email) {
+      setErr("Receiver name and sender name/email are required.");
+      return;
+    }
+    if (!resolvedOutboundEmail) {
+      setErr("No enriched contact email for this lead — cannot finalize for automated outreach.");
       return;
     }
     setErr(""); setSaving(true);
@@ -239,7 +247,7 @@ function FinalizeForm({ lead, onSuccess }: { lead: LeadDetail; onSuccess: () => 
         receiver_details: {
           receiver_name: f.receiver_name,
           receiver_role: f.receiver_role || undefined,
-          receiver_email: f.receiver_email,
+          receiver_email: resolvedOutboundEmail,
           linkedin_url: f.linkedin_url || undefined,
           preferred_contact_method: f.preferred_contact_method,
         },
@@ -274,10 +282,16 @@ function FinalizeForm({ lead, onSuccess }: { lead: LeadDetail; onSuccess: () => 
         </div>
 
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide pt-2">Receiver Details</p>
+        <div className="rounded-md bg-slate-50 border border-slate-200 p-3 text-sm mb-3">
+          <p className="text-xs font-medium text-gray-500 mb-1">Outbound email (enrichment — not editable)</p>
+          <p className="font-mono text-gray-900 break-all">{resolvedOutboundEmail || "— not available —"}</p>
+          <p className="text-[11px] text-gray-500 mt-2">
+            Test(sandbox) runs still SMTP-route to your sandbox inboxes automatically; production uses this address unless routing applies.
+          </p>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <F label="Name *"><input className={inp} value={f.receiver_name} onChange={(e) => set("receiver_name", e.target.value)} /></F>
           <F label="Role"><input className={inp} value={f.receiver_role} onChange={(e) => set("receiver_role", e.target.value)} /></F>
-          <F label="Email *"><input className={inp} type="email" value={f.receiver_email} onChange={(e) => set("receiver_email", e.target.value)} /></F>
           <F label="LinkedIn URL"><input className={inp} value={f.linkedin_url} onChange={(e) => set("linkedin_url", e.target.value)} /></F>
           <F label="Preferred Contact">
             <select className={inp} value={f.preferred_contact_method} onChange={(e) => set("preferred_contact_method", e.target.value)}>

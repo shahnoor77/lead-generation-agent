@@ -26,6 +26,8 @@ AsyncSessionLocal = async_sessionmaker(
 
 async def init_db() -> None:
     """Create all tables if they don't exist. Safe to call on every startup."""
+    import app.storage.models  # noqa: F401 — register SQLModel table metadata before create_all
+
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
         # Lightweight forward-compatible migrations for outreach follow-up agent.
@@ -39,3 +41,7 @@ async def init_db() -> None:
         await conn.execute(text("ALTER TABLE sender_email_accounts ADD COLUMN IF NOT EXISTS imap_password_encrypted VARCHAR"))
         await conn.execute(text("ALTER TABLE sender_email_accounts ADD COLUMN IF NOT EXISTS imap_use_ssl BOOLEAN DEFAULT TRUE"))
         await conn.execute(text("ALTER TABLE outreach_sent ADD COLUMN IF NOT EXISTS campaign_stage VARCHAR DEFAULT 'initial'"))
+        await conn.execute(text("ALTER TABLE outreach_sent ADD COLUMN IF NOT EXISTS outbound_message_id VARCHAR"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_outreach_sent_outbound_message_id ON outreach_sent (outbound_message_id)"))
+        await conn.execute(text("CREATE TABLE IF NOT EXISTS meeting_handoffs (id SERIAL PRIMARY KEY, user_id INTEGER, lead_id VARCHAR, receiver_email VARCHAR, contact_name VARCHAR, contact_role VARCHAR, meeting_date VARCHAR, meeting_time VARCHAR, timezone VARCHAR, notes VARCHAR, raw_response VARCHAR, status VARCHAR DEFAULT 'pending_info', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
+        await conn.execute(text("ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS sandbox_outreach BOOLEAN DEFAULT FALSE"))

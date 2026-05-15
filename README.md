@@ -107,6 +107,57 @@ Output:  approved=false  ← human must review before any send
 
 ---
 
+## Outreach Follow-up Logic
+
+**Timeline:**
+
+```
+Initial Send (Day 0)
+        │
+        ├─► Reply received (positive/negative/neutral) → classify + respond
+        │
+        └─► No reply (48h interval)
+            │
+            ├─► Follow-up #1 (Day 2) → threads to initial
+            ├─► Follow-up #2 (Day 4) → threads to initial
+            ├─► Follow-up #3 (Day 6) → threads to initial
+            ├─► Follow-up #4 (Day 8) → threads to initial
+            │
+            └─► Still no reply after 7+ days + 4 follow-ups
+                → Lead marked LOST with reason: "No reply after 7 days"
+```
+
+**Reply Intent Classification:**
+
+- **Positive**: "interested", "let's talk", "schedule a call", "book a meeting"
+  - Extracts meeting details (date/time/person/role)
+  - If details present → handoff to meeting scheduler
+  - If details missing → sends polite request for meeting info (threaded)
+
+- **Negative**: "not interested", "unsubscribe", "stop", "do not contact"
+  - Immediately marks lead as LOST
+  - Reason: "Prospect declined: {excerpt}"
+
+- **Neutral**: Acknowledgment without clear intent
+  - Auto-generates contextual response (threaded)
+  - Keeps conversation open for 7 days
+
+**Email Threading:**
+
+All follow-ups and replies use RFC 5322 threading headers:
+- `In-Reply-To`: Points to our initial outbound Message-ID
+- `References`: Full thread chain (initial + all follow-ups)
+- Subject: `Re: {original} (follow-up N)`
+
+**Formal Greetings:**
+
+All outreach (initial + follow-ups + replies) uses formal greetings:
+- "Dear {Company} Team," (generic fallback)
+- "Dear {LastName}," (if contact name available)
+- Consistent tone across all stages
+
+---
+
 ## Data Flow
 
 ```

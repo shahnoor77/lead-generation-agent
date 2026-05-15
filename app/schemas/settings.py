@@ -79,3 +79,5 @@ class UserSettingsResponse(BaseModel):
     outreach: OutreachSettings
     ai_agent: AIAgentSettings
     updated_at: Optional[str] = None
+    # Server capability — UI hides sandbox controls when false.
+    sandbox_outreach_available: bool = True

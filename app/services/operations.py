@@ -49,6 +49,7 @@ class OperationsService:
                 total_enriched=run.total_enriched,
                 total_evaluated=run.total_evaluated,
                 total_outreach_drafts=run.total_outreach_drafts,
+                sandbox_outreach=bool(getattr(run, "sandbox_outreach", False)),
                 status_summary=RunStatusSummary(
                     total_discovered=counts.get("DISCOVERED", 0),
                     total_enriched=counts.get("ENRICHED", 0),
@@ -73,17 +74,19 @@ class OperationsService:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
         # Run exists but pipeline may still be processing — return empty list, not 404
-        rows = await _repo.get_leads_for_run(run_id)
+        rows = await _repo.get_leads_for_run(run_id, user_id=user_id)
         leads = [
             LeadSummary(
                 lead_id=r["lead_id"],
                 company_name=r["company_name"],
                 website=r["website"],
                 location=r["location"],
+                contact_email=r.get("contact_email"),
                 fit_score=r["fit_score"],
                 decision=r["decision"],
                 current_status=r["current_status"],
                 approval_status=r["approval_status"],
+                outreach_sent=r.get("outreach_sent", False),
                 discovered_at=r["discovered_at"],
             )
             for r in rows
@@ -125,6 +128,7 @@ class OperationsService:
             category=raw.category if raw else None,
             rating=raw.rating if raw else None,
             review_count=raw.review_count if raw else None,
+            contact_email=enriched.contact_email if enriched else None,
         )
 
         # ── Intelligence ──────────────────────────────────────────────────────

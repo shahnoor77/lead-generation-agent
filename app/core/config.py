@@ -29,5 +29,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
+    # Sandbox test outreach — disable in production (reject sandbox runs + sandbox inbox APIs).
+    sandbox_outreach_enabled: bool = True
+
 
 settings = Settings()  # type: ignore[call-arg]

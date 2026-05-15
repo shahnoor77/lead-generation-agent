@@ -18,6 +18,73 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function _isHttp404Error(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith("404:");
+}
+
+/**
+ * Newer API exposes GET/PUT /api/v1/outreach/account. Older servers only have /outreach/accounts.
+ * These helpers fall back so Settings still works if the backend process was not restarted.
+ */
+async function getOutreachAccountWithFallback(): Promise<Record<string, unknown>> {
+  try {
+    return await request<Record<string, unknown>>("/api/v1/outreach/account");
+  } catch (e: unknown) {
+    if (!_isHttp404Error(e)) throw e;
+    const legacy = await request<{ accounts?: Record<string, unknown>[] }>("/api/v1/outreach/accounts");
+    const list = legacy.accounts ?? [];
+    const active = list.find((a) => a.is_active) ?? list[0];
+    if (!active) return { configured: false };
+    const smtpUser = (active.smtp_username as string) ?? (active.email_address as string) ?? "";
+    return {
+      configured: true,
+      id: active.id,
+      email_address: active.email_address,
+      display_name: (active.display_name as string) ?? "",
+      smtp_host: active.smtp_host,
+      smtp_port: typeof active.smtp_port === "number" ? active.smtp_port : 587,
+      smtp_username: smtpUser,
+      smtp_password_configured: true,
+      use_tls: active.use_tls !== false,
+      daily_limit: typeof active.daily_limit === "number" ? active.daily_limit : 50,
+      imap_host: (active.imap_host as string | null | undefined) ?? null,
+      imap_port: typeof active.imap_port === "number" ? active.imap_port : 993,
+      imap_username: (active.imap_username as string | null | undefined) ?? null,
+      imap_password_configured: Boolean(active.imap_password_configured),
+      imap_use_ssl: active.imap_use_ssl !== false,
+      is_active: active.is_active !== false,
+    };
+  }
+}
+
+async function saveOutreachAccountWithFallback(
+  payload: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const { getToken } = await import("@/lib/auth");
+  const token = getToken();
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  const res = await fetch(`${BASE}/api/v1/outreach/account`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 404) {
+    await request("/api/v1/outreach/accounts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return getOutreachAccountWithFallback();
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.json() as Promise<Record<string, unknown>>;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface RunStatusSummary {
@@ -46,6 +113,8 @@ export interface PipelineRun {
   total_enriched: number;
   total_evaluated: number;
   total_outreach_drafts: number;
+  /** True when outbound was routed to sandbox test inboxes */
+  sandbox_outreach?: boolean;
   status_summary: RunStatusSummary;
 }
 
@@ -54,10 +123,13 @@ export interface LeadSummary {
   company_name: string;
   website: string | null;
   location: string;
+  contact_email?: string | null;
   fit_score: number;
   decision: string;
   current_status: string | null;
   approval_status: string | null;
+  /** True if this user already sent outbound mail logged for this lead */
+  outreach_sent?: boolean;
   discovered_at: string;
 }
 
@@ -80,6 +152,8 @@ export interface LeadDetail {
     category: string | null;
     rating: number | null;
     review_count: number | null;
+    /** Enriched discovery email — used automatically for outbound (not edited here) */
+    contact_email?: string | null;
   };
   intelligence: {
     enrichment_summary: string | null;
@@ -161,6 +235,8 @@ export interface StartRunPayload {
     value_proposition?: string;
     language_preference?: string;
     notes?: string;
+    /** When true, SMTP uses sandbox inboxes; never combined with continuous mode */
+    sandbox_outreach?: boolean;
     continuous?: boolean;
     continuous_interval_minutes?: number;
   };
@@ -217,7 +293,10 @@ export const api = {
   listContinuous: () =>
     request<{ active_continuous_runs: string[]; count: number }>("/api/v1/leads/continuous"),
 
-  // Outreach Agent
+  // Outreach Agent — persisted per-user sender (GET/PUT /account, with legacy fallbacks)
+  getOutreachAccount: () => getOutreachAccountWithFallback(),
+  saveOutreachAccount: (payload: Record<string, unknown>) =>
+    saveOutreachAccountWithFallback(payload),
   getOutreachAccounts: () => request("/api/v1/outreach/accounts"),
   addOutreachAccount: (payload: object) =>
     request("/api/v1/outreach/accounts", { method: "POST", body: JSON.stringify(payload) }),
@@ -229,7 +308,30 @@ export const api = {
     request("/api/v1/outreach/jobs/stop", { method: "DELETE" }),
   getOutreachJobStatus: () => request("/api/v1/outreach/jobs/status"),
   runOutreachNow: () => request("/api/v1/outreach/run-now", { method: "POST" }),
+  listSandboxInboxes: () =>
+    request<{ inboxes: { id: number; email: string; is_active: boolean }[]; total: number }>(
+      "/api/v1/outreach/sandbox/inboxes"
+    ),
+  replaceSandboxInboxes: (emails: string[]) =>
+    request<{ status: string; count: number }>("/api/v1/outreach/sandbox/inboxes", {
+      method: "PUT",
+      body: JSON.stringify({ emails }),
+    }),
+  deleteSandboxInboxRow: (id: number) =>
+    request(`/api/v1/outreach/sandbox/inboxes/${id}`, { method: "DELETE" }),
+  clearSandboxLeadMap: () =>
+    request("/api/v1/outreach/sandbox/lead-recipient-map", { method: "DELETE" }),
+  sendLeadOutreach: (leadId: string, receiverEmail?: string) =>
+    request("/api/v1/outreach/send-lead", {
+      method: "POST",
+      body: JSON.stringify({ lead_id: leadId, receiver_email: receiverEmail || undefined }),
+    }),
   getOutreachSentLog: (limit = 100) => request(`/api/v1/outreach/sent?limit=${limit}`),
+  getMeetingHandoffs: (status?: string, limit = 100) =>
+    request(`/api/v1/outreach/meeting-handoffs?${new URLSearchParams({
+      ...(status ? { status } : {}),
+      limit: String(limit),
+    }).toString()}`),
   updateStatus: (leadId: string, status: string, notes?: string, updatedBy?: string) =>
     request(`/api/v1/leads/${leadId}/status`, {
       method: "PATCH",
