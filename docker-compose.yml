@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: leadgen-postgres
+    environment:
+      POSTGRES_USER: leadgen
+      POSTGRES_PASSWORD: leadgen_secure_password_change_me
+      POSTGRES_DB: leadgen
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - leadgen-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leadgen -d leadgen"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # FastAPI application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: leadgen-api
+    environment:
+      # Database connection
+      DATABASE_URL: postgresql+asyncpg://leadgen:leadgen_secure_password_change_me@postgres:5432/leadgen
+      
+      # App config
+      APP_ENV: production
+      LOG_LEVEL: INFO
+      SECRET_KEY: ${SECRET_KEY:-change-this-to-a-long-random-secret-in-production}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      
+      # LLM (Ollama) — must be accessible from API container
+      # If Ollama is on your host machine, use host.docker.internal (Docker Desktop)
+      # Or use the IP of your Ollama server
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://101.53.238.156:11434}
+      OLLAMA_MODEL: qwen2.5-coder:14b
+      OLLAMA_SUMMARIZE_MODEL: qwen2.5:1.5b
+      
+      # Outreach (sandbox mode)
+      SANDBOX_OUTREACH_ENABLED: "true"
+      OUTREACH_INBOX_PARALLEL_WORKERS: 5
+      OUTREACH_INBOX_POLL_INTERVAL_SEC: 20
+      
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - leadgen-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: pgAdmin for database management (remove if not needed)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: leadgen-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - leadgen-network
+    restart: unless-stopped
+
+networks:
+  leadgen-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

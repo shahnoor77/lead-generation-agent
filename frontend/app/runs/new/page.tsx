@@ -309,6 +309,8 @@ export default function NewRunPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
+          {/* TEMPORARILY DISABLED: Generate Leads button */}
+          {/* 
           <button
             type="submit"
             disabled={state === "submitting"}
@@ -316,6 +318,8 @@ export default function NewRunPage() {
           >
             {state === "submitting" ? "Starting pipeline…" : "Generate Leads"}
           </button>
+          */}
+          
           {SHOW_SANDBOX_UI && sandboxServerOk && (
             <button
               type="button"
@@ -324,13 +328,13 @@ export default function NewRunPage() {
               className="flex-1 border-2 border-amber-400 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-900 text-sm font-medium py-2.5 rounded-md"
               title="Same automation, but SMTP goes only to sandbox inboxes configured in Settings"
             >
-              Test (sandbox)
+              Test (Sandbox)
             </button>
           )}
         </div>
         {SHOW_SANDBOX_UI && sandboxServerOk && (
           <p className="text-xs text-gray-500">
-            <strong>Test (sandbox)</strong> uses real leads but redirects all outbound mail to your sandbox inboxes.
+            <strong>Test (Sandbox)</strong> uses sample leads but redirects all outbound mail to your sandbox inboxes.
             Add them under Settings → Sandbox test inboxes before running.
           </p>
         )}
