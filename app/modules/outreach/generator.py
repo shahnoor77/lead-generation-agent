@@ -79,7 +79,7 @@ class OutreachGenerator:
         inferred_pain_points = await infer_pain_points(enriched, evaluated, context)
         personalization_hooks = self._build_hooks(enriched, evaluated)
 
-        # Autonomous mode: use problem-specific tone + lower temperature for precision
+        # Tone instruction
         tone_instruction = _TONE_INSTRUCTIONS["formal-business"]
         if autonomous:
             tone_instruction = _TONE_INSTRUCTIONS["problem-specific"]
@@ -92,6 +92,7 @@ class OutreachGenerator:
             except Exception:
                 pass
 
+        # Professional greeting (NO auto-detection)
         recv_plan = plan_receiver_outreach(enriched, evaluated.company_name)
         sender_signoff_name = await load_sender_signoff_name(user_id)
         receiver_domain = _extract_receiver_domain(enriched)
@@ -100,7 +101,7 @@ class OutreachGenerator:
         prompt = load_prompt("outreach_draft").format(
             company_name=evaluated.company_name,
             receiver_opening_instruction=recv_plan.opening_instruction,
-            receiver_first_name_hint=recv_plan.first_name_hint or "—",
+            receiver_first_name_hint="",  # Not used anymore — greeting is hardcoded
             sender_signoff_name=sender_signoff_name,
             receiver_domain=receiver_domain or "N/A",
             industry=industry,

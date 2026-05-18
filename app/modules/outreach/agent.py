@@ -307,22 +307,31 @@ def _build_followup_subject(initial_subject: str, followup_number: int) -> str:
 
 
 def _build_followup_body(draft: FinalizedDraftRecord, followup_number: int) -> str:
-    """Generate follow-up email with formal greeting — integrated with EmailFormatter logic."""
-    receiver_name = (draft.receiver_name or "there").strip()
-    sender_name = (draft.sender_name or "Our team").strip()
+    """
+    Generate follow-up email with professional greeting.
+    Uses the same greeting logic as the initial email.
+    """
     company_name = draft.company_name
+    sender_name = (draft.sender_name or "Our Team").strip()
     
-    # Formal greeting based on receiver name (same logic as EmailFormatter)
-    if receiver_name.lower() == "there" or not receiver_name:
-        greeting = f"Dear {company_name} Team,"
-    elif receiver_name.lower().startswith("dear ") or receiver_name.lower().startswith("mr.") or receiver_name.lower().startswith("ms."):
-        # Already formal
-        greeting = f"Dear {receiver_name},"
+    # Professional greeting — hardcoded, never auto-detected
+    # Priority: receiver_name + role > receiver_name only > company team > generic
+    receiver_name = (draft.receiver_name or "").strip()
+    receiver_role = (draft.receiver_role or "").strip()
+    
+    if receiver_role and receiver_name:
+        # Extract last name from receiver_name
+        name_parts = receiver_name.split()
+        last_name = name_parts[-1] if name_parts else receiver_name
+        greeting = f"Dear {receiver_role} {last_name},"
+    elif receiver_name:
+        # Just first name
+        name_parts = receiver_name.split()
+        first_name = name_parts[0] if name_parts else receiver_name
+        greeting = f"Dear {first_name},"
     else:
-        # Personal name — use formal greeting
-        parts = receiver_name.split()
-        last_name = parts[-1] if len(parts) > 1 else receiver_name
-        greeting = f"Dear {last_name},"
+        # No name — use company or generic
+        greeting = f"Dear {company_name} Team," if company_name else "To Whom It May Concern,"
     
     body = (
         f"{greeting}\n\n"
@@ -330,6 +339,44 @@ def _build_followup_body(draft: FinalizedDraftRecord, followup_number: int) -> s
         f"improvements for {company_name}.\n\n"
         f"I understand things move quickly on your end. If a brief 15-minute conversation would be helpful "
         f"to explore how similar organizations have tackled this, I'm happy to make time.\n\n"
+        f"Best regards,\n{sender_name}"
+    )
+    return body
+
+
+async def _build_auto_reply_body(
+    original_subject: str,
+    prospect_reply: str,
+    sender_name: str,
+    company_name: str,
+    receiver_name: str = "",
+    receiver_role: str = "",
+) -> str:
+    """
+    Generate professional auto-reply to prospect.
+    Uses hardcoded formal greeting.
+    """
+    receiver_name = (receiver_name or "").strip()
+    receiver_role = (receiver_role or "").strip()
+    
+    # Professional greeting
+    if receiver_role and receiver_name:
+        name_parts = receiver_name.split()
+        last_name = name_parts[-1] if name_parts else receiver_name
+        greeting = f"Dear {receiver_role} {last_name},"
+    elif receiver_name:
+        name_parts = receiver_name.split()
+        first_name = name_parts[0] if name_parts else receiver_name
+        greeting = f"Dear {first_name},"
+    else:
+        greeting = f"Dear {company_name} Team," if company_name else "To Whom It May Concern,"
+    
+    body = (
+        f"{greeting}\n\n"
+        f"Thank you for your reply. I appreciate you taking the time to get back to me.\n\n"
+        f"I'd love to continue this conversation at your convenience. If you'd like to schedule "
+        f"a brief 15-minute call to explore how we can help {company_name}, please let me know "
+        f"what works best for your calendar.\n\n"
         f"Best regards,\n{sender_name}"
     )
     return body

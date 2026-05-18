@@ -5,9 +5,8 @@ TONE INSTRUCTION (follow exactly):
 
 MANDATORY RULES — each violation makes the output unusable:
 1. Language: {language} (AR = Arabic only, EN = English only — never mix)
-2. RECEIVER GREETING (follow exactly — overrides any default):
+2. RECEIVER GREETING (HARDCODED — use EXACTLY as provided, do NOT auto-detect or change):
    {receiver_opening_instruction}
-   Reference context: known first-name hint (may be empty): "{receiver_first_name_hint}"
 3. Subject line rules:
    - Maximum 10 words
    - Must reference the company's operations, priorities, or growth context (industry mention is optional, never forced)
@@ -15,7 +14,7 @@ MANDATORY RULES — each violation makes the output unusable:
    - GOOD: "Reducing planning gaps for {company_name}" / "Improving operational visibility at {company_name}"
    - BAD: "Partnership opportunity" / "Quick question" / "Following up"
 4. Message body: maximum 200 words — count strictly
-5. CLOSING / SIGN-OFF: End with ONE professional closing phrase (pick one: "Best regards," or "Kind regards," or "Sincerely,") on its own line, then on the next line ONLY this signature name (no extra title unless part of the name): {sender_signoff_name}
+5. CLOSING / SIGN-OFF: End with ONE professional closing phrase on its own line, then on the next line ONLY this signature name (no extra title unless part of the name): {sender_signoff_name}
    Do not use a placeholder. The signature line must match that text exactly.
 6. NEVER open with: "I hope", "My name is", "We are a leading", "I wanted to reach out", "Hope this finds you"
 7. NEVER state assumptions as facts — use hypothesis framing only:
@@ -29,7 +28,7 @@ MANDATORY RULES — each violation makes the output unusable:
 13. Never write internal or meta language: no "draft", "pending review", "AI-generated", placeholders in brackets like [DRAFT], pipeline status, or anything that implies the recipient is reviewing a robot's homework. This text is sent directly to executives.
 14. Tie the opener to specifics from COMPANY + personalization hooks — one concrete observation (website focus, geography, fleet size, accreditation, founding period, notable service lines) beats generic platitudes.
 15. STRUCTURE: body must read naturally and contain these sections in fluent prose (no bullet lists):
-   - Greeting line
+   - Greeting line (use EXACTLY as instructed above — no changes)
    - Brief observation about their business context
    - What we do (1 concise sentence)
    - How we may add value for their team (1-2 concise sentences, hypothesis framing)
