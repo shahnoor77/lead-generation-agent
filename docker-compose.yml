@@ -48,6 +48,10 @@ services:
       OLLAMA_MODEL: qwen2.5-coder:14b
       OLLAMA_SUMMARIZE_MODEL: qwen2.5:1.5b
       
+      # Auth — shared operator API key (must match what clients send as X-Api-Key)
+      OPERATOR_API_KEY: ${OPERATOR_API_KEY:-}
+      ALLOW_USER_SELF_REGISTRATION: "true"
+
       # Outreach (sandbox mode)
       SANDBOX_OUTREACH_ENABLED: "true"
       OUTREACH_INBOX_PARALLEL_WORKERS: 5
