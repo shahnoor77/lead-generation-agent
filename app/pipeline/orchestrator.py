@@ -54,7 +54,7 @@ class PipelineResult:
     errors: list = field(default_factory=list)
 
 
-async def _load_agent_mode(user_id: int | None) -> str:
+async def _load_agent_mode(user_id: str | None) -> str:
     """Load the user's agent_mode setting. Defaults to semi-autonomous."""
     if user_id is None:
         return "semi-autonomous"
@@ -80,7 +80,7 @@ class PipelineOrchestrator:
         self,
         context: BusinessContext,
         pipeline_run_id: str | None = None,
-        user_id: int | None = None,
+        user_id: str | None = None,
     ) -> PipelineResult:
         if pipeline_run_id:
             run_id = pipeline_run_id
@@ -227,7 +227,7 @@ class PipelineOrchestrator:
         self,
         draft: OutreachOutput,
         enriched,
-        user_id: int | None,
+        user_id: str | None,
         run_id: str,
         company_name: str,
         *,

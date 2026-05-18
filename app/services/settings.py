@@ -22,7 +22,7 @@ def _defaults() -> UserSettingsRecord:
     return UserSettingsRecord(user_id=0)  # placeholder for defaults
 
 
-async def get_settings(user_id: int) -> UserSettingsResponse:
+async def get_settings(user_id: str) -> UserSettingsResponse:
     async with AsyncSessionLocal() as session:
         rec = await session.get(UserSettingsRecord, user_id)
 
@@ -38,7 +38,7 @@ async def get_settings(user_id: int) -> UserSettingsResponse:
     return _to_response(rec)
 
 
-async def save_settings(user_id: int, req: UserSettingsRequest) -> UserSettingsResponse:
+async def save_settings(user_id: str, req: UserSettingsRequest) -> UserSettingsResponse:
     async with AsyncSessionLocal() as session:
         rec = await session.get(UserSettingsRecord, user_id)
         if rec is None:

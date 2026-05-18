@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo } from "react";
-import { getToken, clearToken, isLoggedIn } from "@/lib/auth";
+import { getUserId, clearCredentials, isLoggedIn } from "@/lib/auth";
 
 const nav = [
   { href: "/runs",     label: "Runs" },
@@ -14,23 +14,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
 
-  const email = useMemo(() => {
-    // Hide shell details on auth pages.
-    if (path.startsWith("/login") || path.startsWith("/signup")) return null;
+  const userLabel = useMemo(() => {
+    if (path.startsWith("/login")) return null;
     if (!isLoggedIn()) return null;
-    try {
-      const token = getToken();
-      if (!token) return null;
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      return payload.email ?? null;
-    } catch {
-      return null;
-    }
+    const uid = getUserId();
+    if (!uid) return null;
+    return uid.length > 12 ? `${uid.slice(0, 8)}…${uid.slice(-4)}` : uid;
   }, [path]);
 
   useEffect(() => {
-    // Skip auth check on login/signup pages
-    if (path.startsWith("/login") || path.startsWith("/signup")) return;
+    if (path.startsWith("/login")) return;
 
     if (!isLoggedIn()) {
       router.replace("/login");
@@ -39,12 +32,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [path, router]);
 
   function logout() {
-    clearToken();
+    clearCredentials();
     router.push("/login");
   }
 
-  // Don't render shell on auth pages
-  if (path.startsWith("/login") || path.startsWith("/signup")) {
+  if (path.startsWith("/login")) {
     return <>{children}</>;
   }
 
@@ -66,7 +58,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
-          <span suppressHydrationWarning className="text-xs text-gray-400">{email ?? ""}</span>
+          <span suppressHydrationWarning className="text-xs text-gray-400 font-mono">{userLabel ?? ""}</span>
           <button onClick={logout} className="text-xs text-gray-500 hover:text-red-600">
             Sign out
           </button>

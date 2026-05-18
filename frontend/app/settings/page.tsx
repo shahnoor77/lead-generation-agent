@@ -249,11 +249,11 @@ export default function SettingsPage() {
       const updated = await api.saveOutreachAccount(body);
       const p = updated as PersistedSenderAccount;
       setSenderPersisted({
-        configured: true,
         ...p,
+        configured: true,
       });
       setSenderEditing(false);
-      applyPersistedIntoForm({ configured: true, ...p }, true);
+      applyPersistedIntoForm({ ...p, configured: true }, true);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e: unknown) {

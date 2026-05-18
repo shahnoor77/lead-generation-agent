@@ -74,7 +74,7 @@ class UserSettingsRequest(BaseModel):
 
 
 class UserSettingsResponse(BaseModel):
-    user_id: int
+    user_id: str
     icp: ICPSettings
     outreach: OutreachSettings
     ai_agent: AIAgentSettings

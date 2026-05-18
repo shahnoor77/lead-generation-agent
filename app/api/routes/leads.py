@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 _run_results: dict[str, PipelineResult] = {}
 _run_status: dict[str, str] = {}
 _continuous_active: dict[str, bool] = {}
-_continuous_user: dict[str, int] = {}   # config_id → user_id
+_continuous_user: dict[str, str] = {}   # config_id → user_id (UUID)
 
 
 class GenerateLeadsRequest(BaseModel):
@@ -68,7 +68,7 @@ class DraftsResponse(BaseModel):
 # ── Pipeline runner ───────────────────────────────────────────────────────────
 
 async def _inbox_poll_until(
-    user_id: int,
+    user_id: str,
     should_stop: Callable[[], bool],
     *,
     tag: str = "inbox",
@@ -110,7 +110,7 @@ async def _inbox_poll_until(
 async def _run_pipeline(
     run_id: str,
     context: BusinessContext,
-    user_id: int | None = None,
+    user_id: str | None = None,
     *,
     companion_inbox_poll: bool = True,
 ) -> None:
@@ -149,7 +149,7 @@ async def _run_pipeline(
                 pass
 
 
-async def _continuous_loop(config_id: str, context: BusinessContext, user_id: int) -> None:
+async def _continuous_loop(config_id: str, context: BusinessContext, user_id: str) -> None:
     """
     Runs the pipeline repeatedly until cancelled or config changes.
     Cross-run dedup in DiscoveryService ensures no duplicate leads.

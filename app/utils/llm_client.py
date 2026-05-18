@@ -33,7 +33,7 @@ _BASE_DELAY  = 5.0
 _MAX_DELAY   = 30.0
 
 
-async def _resolve_model(model: str | None, user_id: int | None) -> str:
+async def _resolve_model(model: str | None, user_id: str | None) -> str:
     """
     Resolve which model to use.
     Priority: explicit model arg > user setting > system default.
@@ -60,7 +60,7 @@ async def llm_chat(
     messages: list[dict] = None,
     max_tokens: int = 300,
     temperature: float = 0.2,
-    user_id: int | None = None,
+    user_id: str | None = None,
     **kwargs,
 ):
     """

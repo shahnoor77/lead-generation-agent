@@ -166,7 +166,7 @@ Generate exactly {count} queries — half precise, half broader."""
 async def build_llm_queries(
     context: BusinessContext,
     count: int = 8,
-    user_id: int | None = None,
+    user_id: str | None = None,
 ) -> list[str]:
     has_signal = bool(context.domain or context.target_pain_patterns or context.our_services)
     if not has_signal:
@@ -214,7 +214,7 @@ async def build_llm_queries(
 
 async def build_opportunity_queries(
     context: BusinessContext,
-    user_id: int | None = None,
+    user_id: str | None = None,
 ) -> list[str]:
     queries = await build_llm_queries(context, user_id=user_id)
     if not queries:

@@ -64,7 +64,7 @@ _INBOX_PARALLEL_WORKERS = max(1, min(32, int(os.environ.get("OUTREACH_INBOX_PARA
 
 # Skip IMAP polls for a user after fatal auth failures (reduces Gmail lockouts / log spam).
 _OUTREACH_IMAP_AUTH_COOLDOWN_SEC = float(os.environ.get("OUTREACH_IMAP_AUTH_COOLDOWN_SEC", "900"))
-_imap_auth_cooldown_until: dict[int, float] = {}
+_imap_auth_cooldown_until: dict[str, float] = {}
 
 # ── SMTP sender ───────────────────────────────────────────────────────────────
 
@@ -83,12 +83,12 @@ def _imap_auth_error(e: BaseException) -> bool:
     )
 
 
-def _imap_in_auth_cooldown(user_id: int) -> bool:
+def _imap_in_auth_cooldown(user_id: str) -> bool:
     until = _imap_auth_cooldown_until.get(user_id)
     return until is not None and time.time() < until
 
 
-def _set_imap_auth_cooldown(user_id: int) -> None:
+def _set_imap_auth_cooldown(user_id: str) -> None:
     _imap_auth_cooldown_until[user_id] = time.time() + _OUTREACH_IMAP_AUTH_COOLDOWN_SEC
 
 
@@ -171,7 +171,7 @@ async def _send_email_async(
 
 # ── Dedup check ───────────────────────────────────────────────────────────────
 
-async def _already_sent(user_id: int, lead_id: str, receiver_email: str) -> bool:
+async def _already_sent(user_id: str, lead_id: str, receiver_email: str) -> bool:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(OutreachSentRecord)
@@ -192,7 +192,7 @@ def _in_send_window(window_start: str, window_end: str) -> bool:
 
 # ── Daily limit check ─────────────────────────────────────────────────────────
 
-async def _get_sent_today(user_id: int, sender_email: str) -> int:
+async def _get_sent_today(user_id: str, sender_email: str) -> int:
     today = date.today().isoformat()
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -207,7 +207,7 @@ async def _get_sent_today(user_id: int, sender_email: str) -> int:
 # ── Log sent record ───────────────────────────────────────────────────────────
 
 async def _log_sent(
-    user_id: int, lead_id: str, sender_email: str,
+    user_id: str, lead_id: str, sender_email: str,
     receiver_email: str, subject: str,
     status: str = "sent", error: str | None = None,
     campaign_stage: str = "initial",
@@ -257,7 +257,7 @@ async def _set_lifecycle_status(
             await session.commit()
 
 
-async def _mark_contacted(lead_id: str, user_id: int) -> None:
+async def _mark_contacted(lead_id: str, user_id: str) -> None:
     await _set_lifecycle_status(lead_id, LeadLifecycleStatus.CONTACTED, "outreach_agent")
 
 
@@ -386,7 +386,7 @@ async def _build_auto_reply_body(
 # THREADING FIX: Follow-ups now properly reference the initial send
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def run_outreach_job(user_id: int) -> dict:
+async def run_outreach_job(user_id: str) -> dict:
     """
     Execute one outreach job cycle for a user.
     

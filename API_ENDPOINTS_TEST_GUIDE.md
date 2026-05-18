@@ -21,39 +21,36 @@ Expected:
 
 ---
 
-## 2) Auth
+## 2) Auth (API key + user UUID)
 
-All endpoints below (except `/health`, `/auth/signup`, `/auth/token`) require `Authorization: Bearer <TOKEN>`.
+All endpoints below (except `/health`) require:
 
-### Signup
-- `POST /api/v1/auth/signup`
-- Creates operator account.
+- `X-User-Id: <operator-uuid>`
+- `X-Api-Key: <OPERATOR_API_KEY from server .env>`
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/auth/signup \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"demo@example.com\",\"password\":\"StrongPass1!\"}"
-```
+### Self-registration (default: enabled)
 
-### Login (get token)
-- `POST /api/v1/auth/token`
-- Form-data style (`username`, `password`).
+On the **first** request with a **new UUID** and the correct **OPERATOR_API_KEY**, the server **creates that user**.
+
+Set `ALLOW_USER_SELF_REGISTRATION=false` in `.env` to require pre-provisioned UUIDs only.
+
+Optional admin CLI (server-generated UUID):
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/auth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=demo@example.com&password=StrongPass1!"
+set PYTHONPATH=.
+python scripts/create_api_user.py --email demo@example.com
 ```
 
-Save `access_token` as `TOKEN`.
-
-### Current user
+### Validate / register via me
 - `GET /api/v1/auth/me`
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/auth/me \
-  -H "Authorization: Bearer TOKEN"
+  -H "X-User-Id: 550e8400-e29b-41d4-a716-446655440000" \
+  -H "X-Api-Key: YOUR_OPERATOR_API_KEY"
 ```
+
+Use the same headers on all protected routes.
 
 ---
 
@@ -65,7 +62,8 @@ curl http://127.0.0.1:8000/api/v1/auth/me \
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/leads/generate \
-  -H "Authorization: Bearer TOKEN" \
+  -H "X-User-Id: YOUR-UUID" \
+  -H "X-Api-Key: YOUR_OPERATOR_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"context\": {
@@ -132,7 +130,8 @@ All above require bearer token.
 
 ```bash
 curl -X PATCH http://127.0.0.1:8000/api/v1/leads/LEAD_ID/status \
-  -H "Authorization: Bearer TOKEN" \
+  -H "X-User-Id: YOUR-UUID" \
+  -H "X-Api-Key: YOUR_OPERATOR_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"status\":\"CONTACTED\",\"notes\":\"manual update\",\"updated_by\":\"operator\"}"
 ```

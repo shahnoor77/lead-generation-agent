@@ -18,7 +18,7 @@ from sqlmodel import select
 logger = get_logger(__name__)
 
 
-async def save_user_config(user_id: int, context: BusinessContext) -> None:
+async def save_user_config(user_id: str, context: BusinessContext) -> None:
     """Persist the user's current lead generation config."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -67,7 +67,7 @@ async def save_user_config(user_id: int, context: BusinessContext) -> None:
     logger.info("user_config.saved", user_id=user_id)
 
 
-async def load_user_config(user_id: int) -> dict | None:
+async def load_user_config(user_id: str) -> dict | None:
     """Load the user's last-used config as a plain dict (for API response)."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(

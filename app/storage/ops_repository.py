@@ -29,7 +29,7 @@ class OpsRepository:
 
     # ── Pipeline Runs ─────────────────────────────────────────────────────────
 
-    async def get_all_runs(self, user_id: int | None = None) -> list[PipelineRunRecord]:
+    async def get_all_runs(self, user_id: str | None = None) -> list[PipelineRunRecord]:
         async with AsyncSessionLocal() as session:
             stmt = select(PipelineRunRecord).order_by(PipelineRunRecord.started_at.desc())
             if user_id is not None:
@@ -37,7 +37,7 @@ class OpsRepository:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-    async def get_run(self, run_id: str, user_id: int | None = None) -> Optional[PipelineRunRecord]:
+    async def get_run(self, run_id: str, user_id: str | None = None) -> Optional[PipelineRunRecord]:
         async with AsyncSessionLocal() as session:
             record = await session.get(PipelineRunRecord, run_id)
             if record is None:
@@ -49,7 +49,7 @@ class OpsRepository:
 
     # ── Leads for a run ───────────────────────────────────────────────────────
 
-    async def get_leads_for_run(self, run_id: str, user_id: int | None = None) -> list[dict]:
+    async def get_leads_for_run(self, run_id: str, user_id: str | None = None) -> list[dict]:
         """
         Returns evaluated leads joined with lifecycle status and approval status.
         One query per table — no ORM joins to keep it simple and fast.

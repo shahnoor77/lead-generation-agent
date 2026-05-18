@@ -1,9 +1,13 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+
+# Always load .env from repo root (not whatever directory uvicorn was started from).
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
 
     # App
     app_env: str = "development"
@@ -24,13 +28,13 @@ class Settings(BaseSettings):
     scrape_timeout_seconds: int = 30
     maps_search_region: str = "SA"
 
-    # Auth — JWT
-    secret_key: str = "change-this-in-production-use-a-long-random-string"
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24  # 24 hours
-
     # Sandbox test outreach — disable in production (reject sandbox runs + sandbox inbox APIs).
     sandbox_outreach_enabled: bool = True
+
+    # Auth — shared operator API key (.env) + per-user UUID.
+    operator_api_key: str = ""
+    allow_user_self_registration: bool = True
+    secret_key: str = "change-this-in-production-use-a-long-random-string"
 
 
 settings = Settings()  # type: ignore[call-arg]

@@ -72,7 +72,7 @@ class OutreachGenerator:
         enriched: EnrichedLead,
         evaluated: EvaluatedLead,
         context: BusinessContext,
-        user_id: int | None = None,
+        user_id: str | None = None,
         autonomous: bool = False,
     ) -> OutreachOutput:
         resolved_language = _resolve_language(context, enriched)

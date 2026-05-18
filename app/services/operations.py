@@ -32,7 +32,7 @@ class OperationsService:
 
     # ── All pipeline runs ─────────────────────────────────────────────────────
 
-    async def get_all_runs(self, user_id: int | None = None) -> PipelineRunsResponse:
+    async def get_all_runs(self, user_id: str | None = None) -> PipelineRunsResponse:
         runs = await _repo.get_all_runs(user_id=user_id)
         summaries = []
         for run in runs:
@@ -68,7 +68,7 @@ class OperationsService:
 
     # ── Leads for a run ───────────────────────────────────────────────────────
 
-    async def get_run_leads(self, run_id: str, user_id: int | None = None) -> RunLeadsResponse:
+    async def get_run_leads(self, run_id: str, user_id: str | None = None) -> RunLeadsResponse:
         run = await _repo.get_run(run_id, user_id=user_id)
         if run is None:
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
@@ -100,7 +100,7 @@ class OperationsService:
 
     # ── Single lead detail ────────────────────────────────────────────────────
 
-    async def get_lead_detail(self, lead_id: str, user_id: int | None = None) -> LeadDetailResponse:
+    async def get_lead_detail(self, lead_id: str, user_id: str | None = None) -> LeadDetailResponse:
         data = await _repo.get_lead_detail(lead_id)
         if data is None:
             raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")

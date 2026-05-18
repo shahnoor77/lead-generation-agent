@@ -85,7 +85,7 @@ def plan_receiver_outreach(enriched: EnrichedLead, company_name: str) -> Receive
     )
 
 
-async def load_sender_signoff_name(user_id: int | None) -> str:
+async def load_sender_signoff_name(user_id: str | None) -> str:
     """
     Name to print after Best regards / Sincerely.
     Priority: active sender account display_name → fallback.

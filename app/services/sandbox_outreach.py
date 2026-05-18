@@ -33,7 +33,7 @@ class SandboxConfigError(RuntimeError):
     pass
 
 
-async def count_active_inboxes(user_id: int) -> int:
+async def count_active_inboxes(user_id: str) -> int:
     async with AsyncSessionLocal() as session:
         r = await session.execute(
             select(SandboxTestInboxRecord)
@@ -44,7 +44,7 @@ async def count_active_inboxes(user_id: int) -> int:
 
 
 async def resolve_smtp_receiver(
-    user_id: int,
+    user_id: str,
     lead_id: str,
     natural_email: str,
     *,
@@ -127,7 +127,7 @@ async def resolve_smtp_receiver(
             raise SandboxConfigError("Failed to persist sandbox recipient mapping.") from None
 
 
-async def is_sandbox_pipeline_run(user_id: int, pipeline_run_id: str | None) -> bool:
+async def is_sandbox_pipeline_run(user_id: str, pipeline_run_id: str | None) -> bool:
     if not pipeline_run_id:
         return False
     async with AsyncSessionLocal() as session:

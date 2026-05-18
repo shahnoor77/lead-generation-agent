@@ -56,7 +56,7 @@ router = APIRouter(prefix="/outreach", tags=["outreach-agent"])
 logger = get_logger(__name__)
 
 # In-memory job registry
-_active_jobs: dict[int, bool] = {}   # user_id → running
+_active_jobs: dict[str, bool] = {}   # user_id → running
 
 
 def _require_sandbox_api() -> None:
@@ -88,7 +88,7 @@ AddAccountRequest = PersistSenderAccountRequest
 
 
 async def _upsert_resolve_sender_row(
-    session, user_id: int,
+    session, user_id: str,
 ) -> tuple[SenderEmailAccountRecord | None, bool]:
     """
     Target row for create/update persisted sender.
@@ -107,7 +107,7 @@ async def _upsert_resolve_sender_row(
     return preferred, False
 
 
-async def _get_active_sender_row(session, user_id: int) -> SenderEmailAccountRecord | None:
+async def _get_active_sender_row(session, user_id: str) -> SenderEmailAccountRecord | None:
     """Only rows marked active drive sending + Settings read view."""
     r = await session.execute(
         select(SenderEmailAccountRecord)
@@ -141,7 +141,7 @@ def _serialize_sender_public(acc: SenderEmailAccountRecord, *, configured: bool 
 
 
 async def persist_user_sender_account(
-    user_id: int,
+    user_id: str,
     body: PersistSenderAccountRequest,
 ) -> tuple[SenderEmailAccountRecord, str]:
     """Upsert exactly one logical sender configuration per user. Returns (record, action)."""
@@ -317,7 +317,7 @@ async def remove_sender_account(
 
 # ── Job management ────────────────────────────────────────────────────────────
 
-async def _continuous_outreach(user_id: int, interval_minutes: int) -> None:
+async def _continuous_outreach(user_id: str, interval_minutes: int) -> None:
     """Runs outreach cycles on a schedule until stopped."""
     logger.info("outreach_job.started", user_id=user_id, interval_minutes=interval_minutes)
     while _active_jobs.get(user_id, False):

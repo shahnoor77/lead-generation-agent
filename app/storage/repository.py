@@ -35,7 +35,7 @@ logger = get_logger(__name__)
 
 class LeadRepository:
 
-    async def save_pipeline_run(self, result, context, completed_at=None, user_id: int | None = None) -> None:
+    async def save_pipeline_run(self, result, context, completed_at=None, user_id: str | None = None) -> None:
         try:
             async with AsyncSessionLocal() as session:
                 record = PipelineRunRecord(

@@ -5,10 +5,15 @@ TIMESTAMP WITHOUT TIME ZONE columns created by SQLModel.
 """
 
 from __future__ import annotations
+import uuid
 from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field
 from sqlalchemy import UniqueConstraint
+
+
+def _new_user_id() -> str:
+    return str(uuid.uuid4())
 
 
 def _utcnow() -> datetime:
@@ -18,7 +23,7 @@ def _utcnow() -> datetime:
 class PipelineRunRecord(SQLModel, table=True):
     __tablename__ = "pipeline_runs"
     id: str = Field(primary_key=True)
-    user_id: Optional[int] = Field(default=None, index=True)   # owner
+    user_id: Optional[str] = Field(default=None, index=True)   # owner UUID
     location: str
     industries: str
     domain: Optional[str] = None
@@ -220,12 +225,12 @@ class FinalizedDraftRecord(SQLModel, table=True):
 # ── Auth + User Management ────────────────────────────────────────────────────
 
 class UserRecord(SQLModel, table=True):
-    """Operator accounts. Passwords stored as bcrypt hashes."""
+    """Operator accounts — authenticated via UUID + API key (hashed at rest)."""
     __tablename__ = "users"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    email: str = Field(unique=True, index=True)
-    hashed_password: str
+    id: str = Field(default_factory=_new_user_id, primary_key=True, max_length=36)
+    email: Optional[str] = Field(default=None, unique=True, index=True)
+    api_key_hash: str = Field(description="bcrypt hash of the user's API key")
     is_active: bool = True
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -239,7 +244,7 @@ class UserLeadConfigRecord(SQLModel, table=True):
     __tablename__ = "user_lead_configs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: str = Field(index=True, max_length=36)
     industries: str = Field(default="[]")           # JSON array
     location: str = ""
     country: Optional[str] = None
@@ -266,7 +271,7 @@ class UserSettingsRecord(SQLModel, table=True):
     """
     __tablename__ = "user_settings"
 
-    user_id: int = Field(primary_key=True)
+    user_id: str = Field(primary_key=True, max_length=36)
     updated_at: datetime = Field(default_factory=_utcnow)
 
     # ── ICP Settings ──────────────────────────────────────────────────────────
@@ -317,7 +322,7 @@ class SenderEmailAccountRecord(SQLModel, table=True):
     __tablename__ = "sender_email_accounts"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: str = Field(index=True, max_length=36)
     email_address: str = Field(index=True)
     display_name: str = ""                      # "Ali Hassan — XYZ Consulting"
     smtp_host: str = ""
@@ -343,7 +348,7 @@ class OutreachSentRecord(SQLModel, table=True):
     __tablename__ = "outreach_sent"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: str = Field(index=True, max_length=36)
     lead_id: str = Field(index=True)
     finalized_draft_id: str                     # lead_id of FinalizedDraftRecord
     sender_email: str
@@ -366,7 +371,7 @@ class OutreachReplyRecord(SQLModel, table=True):
     __tablename__ = "outreach_replies"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: str = Field(index=True, max_length=36)
     lead_id: str = Field(index=True)
     receiver_email: str
     message_id: str = Field(index=True)
@@ -384,7 +389,7 @@ class MeetingHandoffRecord(SQLModel, table=True):
     __tablename__ = "meeting_handoffs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: str = Field(index=True, max_length=36)
     lead_id: str = Field(index=True)
     receiver_email: str
     contact_name: Optional[str] = None
@@ -409,7 +414,7 @@ class SandboxTestInboxRecord(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("user_id", "email", name="uq_sandbox_inbox_user_email"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: str = Field(index=True, max_length=36)
     email: str = Field(index=True)
     is_active: bool = True
     created_at: datetime = Field(default_factory=_utcnow)
@@ -425,7 +430,7 @@ class SandboxLeadRecipientMapRecord(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("user_id", "lead_id", name="uq_sandbox_map_user_lead"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True)
+    user_id: str = Field(index=True, max_length=36)
     lead_id: str = Field(index=True)
     sandbox_email: str
     created_at: datetime = Field(default_factory=_utcnow)
@@ -439,7 +444,7 @@ class OutreachJobRecord(SQLModel, table=True):
     __tablename__ = "outreach_jobs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(index=True, unique=True)  # one active job per user
+    user_id: str = Field(index=True, unique=True, max_length=36)  # one active job per user
     is_active: bool = True
     sender_account_id: int
     industry_filter: Optional[str] = None      # JSON array — filter by industry

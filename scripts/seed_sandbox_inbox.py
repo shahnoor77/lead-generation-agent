@@ -2,12 +2,10 @@
 """
 Insert sandbox test inbox address(es) for outreach test mode (SMTP redirects here).
 
-Sandbox rows are per user. By default attaches to the first user in `users`; override with flags.
-
 Examples (from repo root):
-  PYTHONPATH=. python scripts/seed_sandbox_inbox.py shahnoorr9955@gmail.com
-  PYTHONPATH=. python scripts/seed_sandbox_inbox.py --user-id 2 a@test.com b@test.com
-  PYTHONPATH=. python scripts/seed_sandbox_inbox.py --user-email operator@corp.com shahnoorr9955@gmail.com
+  set PYTHONPATH=.
+  python scripts/seed_sandbox_inbox.py shahnoorr9955@gmail.com
+  python scripts/seed_sandbox_inbox.py --user-id <uuid> a@test.com b@test.com
 """
 
 from __future__ import annotations
@@ -17,7 +15,6 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Repo root on path for `app.*` imports
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -27,24 +24,20 @@ from sqlmodel import select
 
 from app.storage.database import AsyncSessionLocal, init_db
 from app.storage.models import SandboxTestInboxRecord, UserRecord
+from app.schemas.user import normalize_user_uuid
 
 
-async def _resolve_user_id(session, user_id: int | None, login_email: str | None) -> int:
-    if user_id is not None:
-        u = await session.get(UserRecord, user_id)
+async def _resolve_user_id(session, user_id: str | None) -> str:
+    if user_id:
+        uid = normalize_user_uuid(user_id)
+        u = await session.get(UserRecord, uid)
         if not u:
-            raise SystemExit(f"No user with id={user_id}")
-        return u.id  # type: ignore[return-value]
-    if login_email:
-        r = await session.execute(select(UserRecord).where(UserRecord.email == login_email.strip().lower()))
-        u = r.scalar_one_or_none()
-        if not u:
-            raise SystemExit(f"No user with email={login_email!r}")
-        return u.id  # type: ignore[return-value]
-    r = await session.execute(select(UserRecord).order_by(UserRecord.id.asc()).limit(1))
+            raise SystemExit(f"No user with id={uid}")
+        return u.id
+    r = await session.execute(select(UserRecord).order_by(UserRecord.created_at.asc()).limit(1))
     u = r.scalar_one_or_none()
     if not u:
-        raise SystemExit("No users in database — sign up first, then rerun this script.")
+        raise SystemExit("No users in database — run scripts/create_api_user.py first.")
     print(f"[seed_sandbox_inbox] Using user id={u.id} email={u.email}")
     return u.id
 
@@ -57,13 +50,7 @@ async def main_async() -> None:
         default=["shahnoorr9955@gmail.com"],
         help="Sandbox inbox emails (normalized to lowercase).",
     )
-    parser.add_argument("--user-id", type=int, default=None, help="Target user PK (sandbox rows are per user).")
-    parser.add_argument(
-        "--user-email",
-        type=str,
-        default=None,
-        help="Target user login email instead of --user-id.",
-    )
+    parser.add_argument("--user-id", type=str, default=None, help="Target user UUID.")
     args = parser.parse_args()
 
     await init_db()
@@ -72,7 +59,7 @@ async def main_async() -> None:
         raise SystemExit("No emails provided.")
 
     async with AsyncSessionLocal() as session:
-        uid = await _resolve_user_id(session, args.user_id, args.user_email)
+        uid = await _resolve_user_id(session, args.user_id)
         added = 0
         skipped = 0
         for em in emails:

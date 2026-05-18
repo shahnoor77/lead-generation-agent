@@ -35,7 +35,7 @@ class DiscoveryService:
         self,
         context: BusinessContext,
         pipeline_run_id: uuid.UUID | None = None,
-        user_id: int | None = None,
+        user_id: str | None = None,
     ) -> list[RawLead]:
         leads: list[RawLead] = []
 

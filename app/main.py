@@ -1,6 +1,9 @@
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 
 from app.api.routes import health, leads
 from app.api.routes import lifecycle
@@ -9,13 +12,26 @@ from app.api.routes import operations
 from app.api.routes import auth
 from app.api.routes import settings as settings_router
 from app.api.routes import outreach_agent
-from app.core.logging import setup_logging
+from app.core.config import _ENV_FILE, settings
+from app.core.logging import get_logger, setup_logging
 from app.storage.database import init_db
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    key_set = bool((settings.operator_api_key or "").strip())
+    logger.info(
+        "app.startup",
+        env_file=str(_ENV_FILE),
+        env_file_exists=_ENV_FILE.is_file(),
+        operator_api_key_configured=key_set,
+        self_registration=settings.allow_user_self_registration,
+    )
+    if not key_set:
+        logger.warning("app.startup.operator_api_key_missing — set OPERATOR_API_KEY in .env and restart")
     await init_db()
     yield
 
@@ -34,6 +50,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next) -> Response:
+    start = time.perf_counter()
+    response = await call_next(request)
+    ms = round((time.perf_counter() - start) * 1000, 1)
+    logger.info(
+        "http.request",
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        ms=ms,
+    )
+    return response
+
 
 app.include_router(health.router, tags=["health"])
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])

@@ -29,7 +29,7 @@ class OutreachService:
         enriched: EnrichedLead,
         evaluated: EvaluatedLead,
         context: BusinessContext,
-        user_id: int | None = None,
+        user_id: str | None = None,
         autonomous: bool = False,
     ) -> OutreachOutput | None:
         if evaluated.decision == ICPDecision.REJECTED:

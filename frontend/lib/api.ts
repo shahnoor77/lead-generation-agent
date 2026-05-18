@@ -1,12 +1,14 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const { getToken } = await import("@/lib/auth");
-  const token = getToken();
+  const { getUserId, getApiKey } = await import("@/lib/auth");
+  const userId = getUserId();
+  const apiKey = getApiKey();
   const res = await fetch(`${BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(userId ? { "X-User-Id": userId } : {}),
+      ...(apiKey ? { "X-Api-Key": apiKey } : {}),
       ...init?.headers,
     },
     ...init,
@@ -60,11 +62,13 @@ async function getOutreachAccountWithFallback(): Promise<Record<string, unknown>
 async function saveOutreachAccountWithFallback(
   payload: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const { getToken } = await import("@/lib/auth");
-  const token = getToken();
+  const { getUserId, getApiKey } = await import("@/lib/auth");
+  const userId = getUserId();
+  const apiKey = getApiKey();
   const headers: HeadersInit = {
     "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(userId ? { "X-User-Id": userId } : {}),
+    ...(apiKey ? { "X-Api-Key": apiKey } : {}),
   };
   const res = await fetch(`${BASE}/api/v1/outreach/account`, {
     method: "PUT",
@@ -245,23 +249,38 @@ export interface StartRunPayload {
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
-  // Auth
-  signup: (email: string, password: string) =>
-    request<{ user_id: number; email: string }>("/api/v1/auth/signup", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
-  login: async (email: string, password: string) => {
-    const form = new URLSearchParams({ username: email, password });
-    const res = await fetch(`${BASE}/api/v1/auth/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    });
-    if (!res.ok) throw new Error("Invalid email or password");
-    return res.json() as Promise<{ access_token: string; user_id: number; email: string }>;
+  // Auth — API key + UUID
+  verifyCredentials: () =>
+    request<{ user_id: string; email: string | null; is_active: boolean }>("/api/v1/auth/me"),
+  login: async (userId: string, apiKey: string) => {
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/api/v1/auth/me`, {
+        headers: {
+          "X-User-Id": userId.trim(),
+          "X-Api-Key": apiKey.trim(),
+        },
+      });
+    } catch {
+      throw new Error(`Cannot reach API at ${BASE} — is the backend running?`);
+    }
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = (await res.json()) as { detail?: string | { msg?: string }[] };
+        if (typeof body.detail === "string") detail = body.detail;
+        else if (Array.isArray(body.detail) && body.detail[0]?.msg) detail = body.detail[0].msg;
+        else if (body.detail) detail = JSON.stringify(body.detail);
+      } catch {
+        const text = await res.text().catch(() => "");
+        if (text) detail = text.slice(0, 200);
+      }
+      throw new Error(`${res.status}: ${detail}`);
+    }
+    const data = await res.json() as { user_id: string; email: string | null; is_active: boolean };
+    return { user_id: data.user_id, email: data.email ?? "" };
   },
-  me: () => request<{ user_id: number; email: string }>("/api/v1/auth/me"),
+  me: () => request<{ user_id: string; email: string | null; is_active: boolean }>("/api/v1/auth/me"),
   getSettings: () => request<Record<string, unknown>>("/api/v1/settings"),
   saveSettings: (settings: Record<string, unknown>) =>
     request("/api/v1/settings", { method: "PUT", body: JSON.stringify(settings) }),
