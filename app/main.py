@@ -12,6 +12,7 @@ from app.api.routes import operations
 from app.api.routes import auth
 from app.api.routes import settings as settings_router
 from app.api.routes import outreach_agent
+from app.api.routes import webhooks as webhooks_router
 from app.core.config import _ENV_FILE, settings
 from app.core.logging import get_logger, setup_logging
 from app.storage.database import init_db
@@ -75,3 +76,4 @@ app.include_router(finalization.router, prefix="/api/v1", tags=["finalization"])
 app.include_router(operations.router, prefix="/api/v1", tags=["operations"])
 app.include_router(settings_router.router, prefix="/api/v1", tags=["settings"])
 app.include_router(outreach_agent.router, prefix="/api/v1", tags=["outreach-agent"])
+app.include_router(webhooks_router.router, prefix="/api/v1", tags=["webhooks"])

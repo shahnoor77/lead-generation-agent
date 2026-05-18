@@ -6,13 +6,15 @@ GET   /api/v1/leads/{lead_id}/status   Get current status
 GET   /api/v1/leads/{lead_id}/status/history  Full status history
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.schemas.lifecycle import (
     UpdateLeadStatusRequest,
     LeadStatusResponse,
     LeadStatusHistoryResponse,
 )
 from app.services.lifecycle import LeadLifecycleService
+from app.api.dependencies import get_current_user
+from app.storage.models import UserRecord
 
 router = APIRouter()
 _svc = LeadLifecycleService()
@@ -22,6 +24,7 @@ _svc = LeadLifecycleService()
 async def update_lead_status(
     lead_id: str,
     body: UpdateLeadStatusRequest,
+    current_user: UserRecord = Depends(get_current_user),
 ) -> LeadStatusResponse:
     """
     Update a lead's lifecycle status manually.
@@ -42,16 +45,23 @@ async def update_lead_status(
         new_status=body.status,
         notes=body.notes,
         updated_by=body.updated_by,
+        user_id=current_user.id,
     )
 
 
 @router.get("/leads/{lead_id}/status", response_model=LeadStatusResponse)
-async def get_lead_status(lead_id: str) -> LeadStatusResponse:
+async def get_lead_status(
+    lead_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+) -> LeadStatusResponse:
     """Get the current lifecycle status of a lead."""
     return await _svc.get_status(lead_id)
 
 
 @router.get("/leads/{lead_id}/status/history", response_model=LeadStatusHistoryResponse)
-async def get_lead_status_history(lead_id: str) -> LeadStatusHistoryResponse:
+async def get_lead_status_history(
+    lead_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+) -> LeadStatusHistoryResponse:
     """Get the full status change history for a lead."""
     return await _svc.get_history(lead_id)

@@ -221,6 +221,27 @@ class PipelineOrchestrator:
             auto_sent=result.total_auto_sent,
             errors=len(result.errors),
         )
+
+        # Fire run.completed webhook
+        from app.services.webhooks import fire_and_forget
+        fire_and_forget(
+            "run.completed",
+            user_id,
+            {
+                "run_id": run_id,
+                "agent_mode": agent_mode,
+                "sandbox_outreach": sandbox_outreach,
+                "total_discovered": result.total_discovered,
+                "total_enriched": result.total_enriched,
+                "total_filtered_out": result.total_filtered_out,
+                "total_evaluated": result.total_evaluated,
+                "total_rejected_by_icp": result.total_rejected_by_icp,
+                "total_outreach_drafts": len(result.outreach_drafts),
+                "total_auto_sent": result.total_auto_sent,
+                "errors": len(result.errors),
+            },
+        )
+
         return result
 
     async def _auto_send(

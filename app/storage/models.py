@@ -453,3 +453,30 @@ class OutreachJobRecord(SQLModel, table=True):
     last_sent_date: Optional[str] = None        # YYYY-MM-DD
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+# ── Webhook Subscriptions ─────────────────────────────────────────────────────
+
+class WebhookSubscriptionRecord(SQLModel, table=True):
+    """
+    Per-user webhook subscription.
+    A user can register multiple URLs, each listening to different events.
+
+    events: JSON array of event type strings, e.g.:
+      ["run.completed", "lead.status_changed", "outreach.sent"]
+
+    Supported events:
+      run.completed, lead.status_changed, lead.discovered, lead.qualified,
+      lead.outreach_drafted, outreach.sent, outreach.replied,
+      outreach.meeting, draft.finalized
+    """
+    __tablename__ = "webhook_subscriptions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: str = Field(index=True, max_length=36)
+    url: str = Field(description="HTTPS URL to POST events to")
+    events: str = Field(default='[]', description="JSON array of subscribed event types")
+    description: Optional[str] = Field(default=None, max_length=200)
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

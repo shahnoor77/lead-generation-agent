@@ -165,5 +165,20 @@ async def init_db() -> None:
         await conn.execute(text("ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS sandbox_outreach BOOLEAN DEFAULT FALSE"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key_hash VARCHAR"))
         await conn.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL"))
+        await conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS webhook_subscriptions ("
+            "id SERIAL PRIMARY KEY, "
+            "user_id VARCHAR(36) NOT NULL, "
+            "url VARCHAR NOT NULL, "
+            "events VARCHAR NOT NULL DEFAULT '[]', "
+            "description VARCHAR(200), "
+            "is_active BOOLEAN DEFAULT TRUE, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_webhook_subscriptions_user_id "
+            "ON webhook_subscriptions (user_id)"
+        ))
         await _migrate_users_to_uuid(conn)
 

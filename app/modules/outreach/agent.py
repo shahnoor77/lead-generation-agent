@@ -628,6 +628,22 @@ async def run_outreach_job(user_id: str) -> dict:
                 followup_num=(followup_count + 1 if stage == "followup" else 0),
             )
 
+            # Fire outreach.sent webhook
+            from app.services.webhooks import fire_and_forget
+            fire_and_forget(
+                "outreach.sent",
+                user_id,
+                {
+                    "lead_id": draft.lead_id,
+                    "company_name": draft.company_name,
+                    "receiver_email": receiver_email,
+                    "subject": subject,
+                    "campaign_stage": stage,
+                    "followup_number": followup_count + 1 if stage == "followup" else 0,
+                    "sender_email": sender.email_address,
+                },
+            )
+
         except Exception as e:
             await _log_sent(
                 user_id, draft.lead_id, sender.email_address, receiver_email,

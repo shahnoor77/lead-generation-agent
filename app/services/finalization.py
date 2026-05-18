@@ -42,6 +42,7 @@ class DraftFinalizationService:
         self,
         lead_id: str,
         payload: FinalizeDraftRequest,
+        user_id: str | None = None,
     ) -> FinalizeDraftResponse:
         """
         Save the human-edited final draft alongside the original generated draft.
@@ -148,6 +149,22 @@ class DraftFinalizationService:
             "finalization.draft_finalized",
             lead_id=lead_id,
             finalized_by=payload.finalized_by,
+        )
+
+        # Fire draft.finalized webhook
+        from app.services.webhooks import fire_and_forget
+        fire_and_forget(
+            "draft.finalized",
+            user_id,
+            {
+                "lead_id": lead_id,
+                "company_name": company_name,
+                "pipeline_run_id": generated.pipeline_run_id,
+                "final_subject": payload.final_subject,
+                "receiver_email": str(payload.receiver_details.receiver_email),
+                "finalized_by": payload.finalized_by,
+                "approval_status": "PENDING_REVIEW",
+            },
         )
 
         return FinalizeDraftResponse(

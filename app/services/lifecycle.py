@@ -40,6 +40,7 @@ class LeadLifecycleService:
         company_name: str,
         pipeline_run_id: str,
         status: LeadLifecycleStatus,
+        user_id: str | None = None,
     ) -> None:
         """Called by the pipeline orchestrator — no transition validation needed."""
         await self._upsert(
@@ -49,6 +50,7 @@ class LeadLifecycleService:
             status=status,
             changed_by="pipeline",
             notes=None,
+            user_id=user_id,
         )
         logger.info(
             "lifecycle.pipeline_status_set",
@@ -64,6 +66,7 @@ class LeadLifecycleService:
         new_status: LeadLifecycleStatus,
         notes: str | None,
         updated_by: str | None,
+        user_id: str | None = None,
     ) -> LeadStatusResponse:
         """
         Validates transition, updates current status, appends history.
@@ -96,6 +99,7 @@ class LeadLifecycleService:
             status=new_status,
             changed_by=updated_by or "human",
             notes=notes,
+            user_id=user_id,
         )
 
         logger.info(
@@ -173,6 +177,7 @@ class LeadLifecycleService:
         status: LeadLifecycleStatus,
         changed_by: str | None,
         notes: str | None,
+        user_id: str | None = None,
     ) -> None:
         now = _now()
         async with AsyncSessionLocal() as session:
@@ -205,3 +210,19 @@ class LeadLifecycleService:
             ))
 
             await session.commit()
+
+        # Fire webhook — non-blocking, never raises
+        from app.services.webhooks import fire_and_forget
+        fire_and_forget(
+            "lead.status_changed",
+            user_id,
+            {
+                "lead_id": lead_id,
+                "company_name": company_name,
+                "pipeline_run_id": pipeline_run_id,
+                "status": status.value,
+                "changed_by": changed_by,
+                "notes": notes,
+                "changed_at": now.isoformat() + "Z",
+            },
+        )
