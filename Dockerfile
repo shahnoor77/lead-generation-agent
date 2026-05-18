@@ -19,7 +19,7 @@ RUN poetry install --no-interaction --no-ansi
 
 # 4. Copy application code
 COPY app ./app
-COPY .env* ./
+COPY prompts ./prompts
 
 # 5. Handle user permissions
 # The Playwright image already has 'pwuser' (UID 1000)
