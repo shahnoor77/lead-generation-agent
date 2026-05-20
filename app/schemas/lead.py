@@ -70,6 +70,7 @@ class LeadStatus(str, Enum):
 class FilterReason(str, Enum):
     """Reason a lead was discarded by the Filter Layer before ICP evaluation."""
     NO_WEBSITE            = "NO_WEBSITE"
+    NO_CONTACT            = "NO_CONTACT"
     DUPLICATE             = "DUPLICATE"
     ENRICHMENT_FAILED     = "ENRICHMENT_FAILED"
     EXCLUDED_CATEGORY     = "EXCLUDED_CATEGORY"

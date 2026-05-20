@@ -38,29 +38,48 @@ class LeadRepository:
     async def save_pipeline_run(self, result, context, completed_at=None, user_id: str | None = None) -> None:
         try:
             async with AsyncSessionLocal() as session:
-                record = PipelineRunRecord(
-                    id=result.pipeline_run_id,
-                    user_id=user_id,
-                    location=context.location,
-                    industries=", ".join(context.industries),
-                    domain=context.domain,
-                    country=getattr(context, "country", None),
-                    area=context.area,
-                    language_preference=context.language_preference.value,
-                    sandbox_outreach=getattr(result, "sandbox_outreach", False) or getattr(
-                        context, "sandbox_outreach", False
-                    ),
-                    total_discovered=result.total_discovered,
-                    total_enriched=result.total_enriched,
-                    total_filtered_out=result.total_filtered_out,
-                    total_evaluated=result.total_evaluated,
-                    total_rejected_by_icp=result.total_rejected_by_icp,
-                    total_outreach_drafts=len(result.outreach_drafts),
-                    started_at=_now(),
-                    completed_at=_dt(completed_at) or _now(),
-                    errors=json.dumps(result.errors),
-                )
-                session.add(record)
+                # Upsert — the settings route may have pre-inserted the record
+                existing = await session.get(PipelineRunRecord, result.pipeline_run_id)
+                if existing:
+                    existing.user_id = user_id
+                    existing.location = context.location
+                    existing.industries = ", ".join(context.industries)
+                    existing.domain = context.domain
+                    existing.country = getattr(context, "country", None)
+                    existing.area = context.area
+                    existing.language_preference = context.language_preference.value
+                    existing.sandbox_outreach = getattr(result, "sandbox_outreach", False) or getattr(context, "sandbox_outreach", False)
+                    existing.total_discovered = result.total_discovered
+                    existing.total_enriched = result.total_enriched
+                    existing.total_filtered_out = result.total_filtered_out
+                    existing.total_evaluated = result.total_evaluated
+                    existing.total_rejected_by_icp = result.total_rejected_by_icp
+                    existing.total_outreach_drafts = len(result.outreach_drafts)
+                    existing.completed_at = _dt(completed_at) or _now()
+                    existing.errors = json.dumps(result.errors)
+                    session.add(existing)
+                else:
+                    record = PipelineRunRecord(
+                        id=result.pipeline_run_id,
+                        user_id=user_id,
+                        location=context.location,
+                        industries=", ".join(context.industries),
+                        domain=context.domain,
+                        country=getattr(context, "country", None),
+                        area=context.area,
+                        language_preference=context.language_preference.value,
+                        sandbox_outreach=getattr(result, "sandbox_outreach", False) or getattr(context, "sandbox_outreach", False),
+                        total_discovered=result.total_discovered,
+                        total_enriched=result.total_enriched,
+                        total_filtered_out=result.total_filtered_out,
+                        total_evaluated=result.total_evaluated,
+                        total_rejected_by_icp=result.total_rejected_by_icp,
+                        total_outreach_drafts=len(result.outreach_drafts),
+                        started_at=_now(),
+                        completed_at=_dt(completed_at) or _now(),
+                        errors=json.dumps(result.errors),
+                    )
+                    session.add(record)
                 await session.commit()
             logger.info("storage.saved_pipeline_run", run_id=result.pipeline_run_id)
         except Exception as e:

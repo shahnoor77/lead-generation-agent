@@ -47,6 +47,26 @@ _SKIP_DOMAINS = {
 
 class GoogleMapsScraper:
     async def search(self, query: str, location: str, pipeline_run_id=None) -> list[RawLead]:
+        """
+        Run Playwright in a dedicated thread with its own event loop.
+        This is required on Python 3.14+ on Windows where the default event loop
+        no longer supports subprocess creation (needed by Playwright).
+        """
+        import concurrent.futures
+
+        def _run_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self._search_async(query, location, pipeline_run_id))
+            finally:
+                loop.close()
+
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return await loop.run_in_executor(pool, _run_in_thread)
+
+    async def _search_async(self, query: str, location: str, pipeline_run_id=None) -> list[RawLead]:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             ctx = await browser.new_context(

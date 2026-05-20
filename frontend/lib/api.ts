@@ -284,6 +284,16 @@ export const api = {
   getSettings: () => request<Record<string, unknown>>("/api/v1/settings"),
   saveSettings: (settings: Record<string, unknown>) =>
     request("/api/v1/settings", { method: "PUT", body: JSON.stringify(settings) }),
+  generateLeadsFromSettings: (overrides?: Record<string, unknown>) =>
+    request<{ status: string; pipeline_run_id: string; message: string; location: string; industries: string[] }>(
+      "/api/v1/settings/generate-leads",
+      { method: "POST", body: JSON.stringify(overrides ?? {}) }
+    ),
+  testSandboxFromSettings: (overrides?: Record<string, unknown>) =>
+    request<{ status: string; pipeline_run_id: string; sandbox: boolean; sandbox_inbox: string; message: string }>(
+      "/api/v1/settings/test-sandbox",
+      { method: "POST", body: JSON.stringify(overrides ?? {}) }
+    ),
   getSavedConfig: () => request<{ config: Record<string, unknown> | null }>("/api/v1/leads/config"),
   getRuns: () => request<{ runs: PipelineRun[]; total: number }>("/api/v1/runs"),
   startRun: (payload: StartRunPayload) =>
@@ -351,6 +361,22 @@ export const api = {
       ...(status ? { status } : {}),
       limit: String(limit),
     }).toString()}`),
+  updateMeetingHandoff: (id: number, payload: Record<string, unknown>) =>
+    request(`/api/v1/outreach/meeting-handoffs/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  getConversationStats: () =>
+    request<{
+      followup: number; replied: number; in_progress: number;
+      meeting_scheduled: number; won: number; lost: number;
+      total_contacted: number; total_threads: number;
+    }>("/api/v1/outreach/conversation-stats"),
+  getLeadConversation: (leadId: string) =>
+    request<{
+      thread: Record<string, unknown> | null;
+      messages: Record<string, unknown>[];
+    }>(`/api/v1/outreach/conversations/${leadId}`),
   updateStatus: (leadId: string, status: string, notes?: string, updatedBy?: string) =>
     request(`/api/v1/leads/${leadId}/status`, {
       method: "PATCH",

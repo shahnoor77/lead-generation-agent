@@ -1,0 +1,19 @@
+You are extracting structured meeting details from a B2B sales email reply.
+
+## PROSPECT'S MESSAGE
+{reply_body}
+
+## TASK
+Extract any meeting scheduling details mentioned by the prospect. If a field is not mentioned, use null.
+
+Return ONLY valid JSON with no markdown fences:
+{{
+  "contact_name": "prospect's name if mentioned, else null",
+  "contact_role": "prospect's job title if mentioned, else null",
+  "meeting_date": "date mentioned (ISO format YYYY-MM-DD if possible, else free text), or null",
+  "meeting_time": "time mentioned (HH:MM or free text like 'morning'), or null",
+  "timezone": "timezone if mentioned (e.g. 'UTC+3', 'EST'), or null",
+  "preferred_platform": "meeting platform if mentioned (Zoom/Teams/Google Meet/Phone/In-person), or null",
+  "notes": "any other relevant scheduling notes or constraints mentioned, or null",
+  "is_ready_to_schedule": true or false (true if enough info to book a meeting, false if still needs clarification)
+}}

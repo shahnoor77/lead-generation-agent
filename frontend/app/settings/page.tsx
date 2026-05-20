@@ -46,6 +46,13 @@ type Settings = {
     min_fit_score: number;
     require_website: boolean;
     require_contact: boolean;
+    scoring_weights: {
+      industry_match: number;
+      revenue_fit: number;
+      location: number;
+      digital_presence: number;
+      firmographic_quality: number;
+    };
   };
   outreach: {
     sender_domain: string | null;
@@ -78,6 +85,9 @@ export default function SettingsPage() {
   const [sandboxEmailsInput, setSandboxEmailsInput] = useState("");
   const [sandboxRows, setSandboxRows] = useState<{ id: number; email: string }[]>([]);
   const [sandboxBusy, setSandboxBusy] = useState(false);
+  const [generatingLeads, setGeneratingLeads] = useState(false);
+  const [testingSandbox, setTestingSandbox] = useState(false);
+  const [actionResult, setActionResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [senderForm, setSenderForm] = useState({
     email_address: "",
     display_name: "",
@@ -118,6 +128,10 @@ export default function SettingsPage() {
     Promise.all([api.getSettings(), api.getOutreachAccount()])
       .then(([s, acc]) => {
         const sess = s as Settings;
+        // Ensure scoring_weights always has defaults
+        if (!sess.icp.scoring_weights) {
+          sess.icp.scoring_weights = { industry_match: 30, revenue_fit: 20, location: 20, digital_presence: 15, firmographic_quality: 15 };
+        }
         setSettings(sess);
 
         const p = acc as PersistedSenderAccount;
@@ -211,8 +225,37 @@ export default function SettingsPage() {
   function setICP<K extends keyof Settings["icp"]>(k: K, v: Settings["icp"][K]) {
     setSettings((s) => s ? { ...s, icp: { ...s.icp, [k]: v } } : s);
   }
+  function setWeight(k: keyof Settings["icp"]["scoring_weights"], v: number) {
+    setSettings((s) => s ? { ...s, icp: { ...s.icp, scoring_weights: { ...s.icp.scoring_weights, [k]: v } } } : s);
+  }
   function setAI<K extends keyof Settings["ai_agent"]>(k: K, v: Settings["ai_agent"][K]) {
     setSettings((s) => s ? { ...s, ai_agent: { ...s.ai_agent, [k]: v } } : s);
+  }
+
+  async function generateLeads() {
+    setGeneratingLeads(true);
+    setActionResult(null);
+    try {
+      const res = await api.generateLeadsFromSettings();
+      setActionResult({ type: "success", msg: `Run started — ID: ${res.pipeline_run_id}` });
+    } catch (e: unknown) {
+      setActionResult({ type: "error", msg: e instanceof Error ? e.message : "Failed to start run" });
+    } finally {
+      setGeneratingLeads(false);
+    }
+  }
+
+  async function testSandbox() {
+    setTestingSandbox(true);
+    setActionResult(null);
+    try {
+      const res = await api.testSandboxFromSettings();
+      setActionResult({ type: "success", msg: `Sandbox run started — ID: ${res.pipeline_run_id} · inbox: ${res.sandbox_inbox}` });
+    } catch (e: unknown) {
+      setActionResult({ type: "error", msg: e instanceof Error ? e.message : "Failed to start sandbox run" });
+    } finally {
+      setTestingSandbox(false);
+    }
   }
   function setSender<K extends keyof typeof senderForm>(k: K, v: (typeof senderForm)[K]) {
     setSenderForm((f) => ({ ...f, [k]: v }));
@@ -302,6 +345,51 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Quick Actions */}
+      <Section title="Quick Actions">
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Run a lead generation pipeline or sandbox test using your saved settings below. Save settings first before running.
+          </p>
+          {actionResult && (
+            <div className={`text-sm px-3 py-2 rounded-md ${actionResult.type === "success" ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}>
+              {actionResult.msg}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => void generateLeads()}
+              disabled={generatingLeads || testingSandbox}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md"
+            >
+              {generatingLeads ? (
+                <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" /> Generating…</>
+              ) : (
+                <><span>🚀</span> Generate Leads</>
+              )}
+            </button>
+            {SHOW_SANDBOX_UI && settings.sandbox_outreach_available !== false && (
+              <button
+                onClick={() => void testSandbox()}
+                disabled={generatingLeads || testingSandbox}
+                className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md"
+              >
+                {testingSandbox ? (
+                  <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" /> Starting…</>
+                ) : (
+                  <><span>🧪</span> Test Sandbox</>
+                )}
+              </button>
+            )}
+          </div>
+          {actionResult?.type === "success" && (
+            <p className="text-xs text-gray-400">
+              Monitor progress on the <a href="/runs" className="text-blue-600 hover:underline">Runs page</a>.
+            </p>
+          )}
+        </div>
+      </Section>
+
       {/* ICP Settings */}
       <Section title="Ideal Customer Profile (ICP)">
         <div className="space-y-4">
@@ -346,6 +434,41 @@ export default function SettingsPage() {
               onChange={(v) => setICP("require_website", v)} />
             <Toggle label="Require Contact Info" checked={settings.icp.require_contact}
               onChange={(v) => setICP("require_contact", v)} />
+          </div>
+
+          {/* Scoring Weights */}
+          <div className="pt-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Lead Scoring Weights</label>
+            <p className="text-xs text-gray-400 mb-3">
+              Each dimension contributes to the ICP fit score (0–100). Weights are normalised — they don&apos;t need to sum to 100.
+            </p>
+            <div className="space-y-3">
+              {(
+                [
+                  { key: "industry_match", label: "Industry Match" },
+                  { key: "revenue_fit", label: "Revenue Fit" },
+                  { key: "location", label: "Location / Geography" },
+                  { key: "digital_presence", label: "Digital Presence" },
+                  { key: "firmographic_quality", label: "Firmographic Quality" },
+                ] as { key: keyof Settings["icp"]["scoring_weights"]; label: string }[]
+              ).map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-3">
+                  <span className="text-sm text-gray-700 w-44 flex-shrink-0">{label}</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    className="flex-1"
+                    value={settings.icp.scoring_weights[key]}
+                    onChange={(e) => setWeight(key, parseInt(e.target.value))}
+                  />
+                  <span className="text-sm font-mono text-gray-600 w-8 text-right">
+                    {settings.icp.scoring_weights[key]}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </Section>

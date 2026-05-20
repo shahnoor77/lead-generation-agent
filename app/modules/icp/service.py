@@ -4,11 +4,11 @@ ICP Evaluation Module
 Responsibility: Score enriched leads against Ideal Customer Profile.
 
 Evaluation order:
-  1. Rule engine (always, fast, deterministic)
+  1. Rule engine (always, fast, deterministic) — uses user ICP settings for weights
   2. Buyer/Seller classification (always, rule-based + optional LLM tie-breaker)
      → SELLER penalty applied to rule_score before LLM gate
   3. LLM scorer (conditional — only if adjusted rule_score >= threshold)
-  4. fit_score computed, decision made
+  4. fit_score computed using user-configured scoring weights, decision made vs user min_fit_score
 
 Failure strategy:
 - Rule engine never fails
@@ -37,7 +37,8 @@ from app.modules.qualification.buyer_seller_classifier import (
 
 logger = get_logger(__name__)
 
-_RULE_SCORE_LLM_THRESHOLD = 45
+_DEFAULT_MIN_FIT_SCORE = 45
+_RULE_SCORE_LLM_THRESHOLD = 40  # lowered slightly since weighted scoring is more nuanced
 
 
 class ICPEvaluationService:
@@ -45,17 +46,34 @@ class ICPEvaluationService:
         self._rules = RuleEngine()
         self._llm = LLMScorer()
 
-    async def evaluate(self, lead: EnrichedLead, context: BusinessContext) -> EvaluatedLead:
+    async def evaluate(
+        self,
+        lead: EnrichedLead,
+        context: BusinessContext,
+        user_id: str | None = None,
+    ) -> EvaluatedLead:
         logger.info("icp.evaluate.start", lead_id=str(lead.lead_id), trace_id=str(lead.trace_id))
 
+        # Load user ICP settings for weights + thresholds
+        icp_settings = None
+        min_fit_score = _DEFAULT_MIN_FIT_SCORE
+        if user_id:
+            try:
+                from app.services.settings import get_settings
+                user_settings = await get_settings(user_id)
+                icp_settings = user_settings.icp
+                min_fit_score = icp_settings.min_fit_score
+            except Exception as e:
+                logger.warning("icp.settings_load_failed", user_id=user_id, error=str(e))
+
         # ── Step 1: Rule engine ────────────────────────────────────────────────
-        rule_results = self._rules.run(lead, context)
-        passed = sum(1 for r in rule_results if r.passed)
-        total = len(rule_results)
-        rule_score = round((passed / total) * 100) if total else 0
+        rule_results = self._rules.run(lead, context, icp_settings=icp_settings)
+
+        # Weighted rule score using user-configured dimension weights
+        weights = icp_settings.scoring_weights if icp_settings else None
+        rule_score = self._rules.weighted_score(lead, context, rule_results, weights=weights)
 
         # ── Step 2: Buyer/Seller classification ───────────────────────────────
-        # Always runs. LLM tie-breaker only for UNCERTAIN cases.
         bs_result: BuyerSellerResult | None = None
         penalty_reason: str | None = None
         try:
@@ -96,17 +114,16 @@ class ICPEvaluationService:
             else rule_score
         )
 
-        # Use user's configured min_fit_score if available, else default threshold
-        threshold = _RULE_SCORE_LLM_THRESHOLD
-        decision = ICPDecision.QUALIFIED if fit_score >= threshold else ICPDecision.REJECTED
+        # Use user's configured min_fit_score
+        decision = ICPDecision.QUALIFIED if fit_score >= min_fit_score else ICPDecision.REJECTED
 
-        # Build disqualification reason — include buyer/seller info if relevant
+        # Build disqualification reason
         disq_reason: str | None = None
         if decision == ICPDecision.REJECTED:
             if penalty_reason:
                 disq_reason = penalty_reason
             else:
-                disq_reason = "rule_score_below_threshold"
+                disq_reason = f"fit_score_{fit_score}_below_threshold_{min_fit_score}"
 
         # Append buyer/seller classification to LLM reasoning for operator visibility
         bs_note = ""
@@ -141,6 +158,7 @@ class ICPEvaluationService:
             rule_score=rule_score,
             llm_called=llm_was_called,
             decision=decision.value,
+            min_fit_score=min_fit_score,
             buyer_seller=bs_result.classification.value if bs_result else "N/A",
         )
         return evaluated

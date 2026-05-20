@@ -83,24 +83,30 @@ class FilterService:
         leads: list[EnrichedLead],
         context: BusinessContext,
         seen_ids: set[uuid.UUID] | None = None,
+        icp_settings=None,  # ICPSettings | None
     ) -> tuple[list[EnrichedLead], list[FilteredLead]]:
         """
         Returns (passlist, rejectlist).
         seen_ids is mutated in-place to track duplicates across calls.
+        icp_settings: user's ICPSettings — used for require_website / require_contact.
         """
         if seen_ids is None:
             seen_ids = set()
+
+        require_website = icp_settings.require_website if icp_settings else False
+        require_contact = icp_settings.require_contact if icp_settings else False
 
         passlist: list[EnrichedLead] = []
         rejectlist: list[FilteredLead] = []
 
         for lead in leads:
-            reason = self._check(lead, context, seen_ids)
+            reason = self._check(lead, context, seen_ids,
+                                 require_website=require_website,
+                                 require_contact=require_contact)
             if reason is None:
                 seen_ids.add(lead.lead_id)
                 passlist.append(lead)
             else:
-                # Schemas are frozen — construct a new FilteredLead, do not mutate
                 rejected = FilteredLead(
                     lead_id=lead.lead_id,
                     trace_id=lead.trace_id,
@@ -130,6 +136,8 @@ class FilterService:
         lead: EnrichedLead,
         context: BusinessContext,
         seen_ids: set[uuid.UUID],
+        require_website: bool = False,
+        require_contact: bool = False,
     ) -> FilterReason | None:
         # 1. Duplicate within this run
         if lead.lead_id in seen_ids:
@@ -140,15 +148,21 @@ class FilterService:
                 not lead.enrichment_error.startswith("no_website"):
             return FilterReason.ENRICHMENT_FAILED
 
-        # 3. Excluded category (caller-defined hard exclusions)
+        # 3. Require website (user setting)
+        if require_website and not lead.website:
+            return FilterReason.NO_WEBSITE
+
+        # 4. Require contact info (user setting)
+        if require_contact and not (lead.contact_email or lead.phone):
+            return FilterReason.NO_CONTACT
+
+        # 5. Excluded category (caller-defined hard exclusions)
         if context.excluded_categories and lead.category:
             cat_lower = lead.category.lower()
             if any(excl.lower() in cat_lower for excl in context.excluded_categories):
                 return FilterReason.EXCLUDED_CATEGORY
 
-        # 4. Buyer/Seller classification — only filter CLEAR sellers (high confidence)
-        #    Only runs when our_services is provided (needs context to classify)
-        #    Uses rule-based only here — no LLM cost at filter stage
+        # 6. Buyer/Seller classification — only filter CLEAR sellers (high confidence)
         if context.our_services:
             bs_result = classify_rule_based(lead, context)
             if bs_result.classification == BuyerSellerLabel.SELLER and bs_result.seller_score >= 60:
@@ -161,7 +175,7 @@ class FilterService:
                 )
                 return FilterReason.COMPETITOR_SELLER
 
-        # 5. Location presence check — validates against user-supplied location/country
+        # 7. Location presence check
         signals = _location_signals(context)
         location_text = " ".join([
             lead.location or "",
@@ -169,9 +183,5 @@ class FilterService:
         ]).lower()
         if not any(sig in location_text for sig in signals):
             return FilterReason.OUTSIDE_TARGET_REGION
-
-        # Note: NO_WEBSITE is no longer a hard filter — leads without websites
-        # can still be ICP-evaluated using name/category/phone/address signals.
-        # The ICP rule engine will score them lower but not block them entirely.
 
         return None  # passes all checks

@@ -274,6 +274,21 @@ class UserSettingsRecord(SQLModel, table=True):
     user_id: str = Field(primary_key=True, max_length=36)
     updated_at: datetime = Field(default_factory=_utcnow)
 
+    # ── Lead Discovery Settings ───────────────────────────────────────────────
+    discovery_industries: str = Field(
+        default='["manufacturing", "logistics", "construction", "retail", "healthcare"]'
+    )
+    discovery_location: str = Field(default="Saudi Arabia")
+    discovery_country: Optional[str] = None
+    discovery_area: Optional[str] = None
+    discovery_domain: Optional[str] = None
+    discovery_our_services: str = Field(default="[]")
+    discovery_pain_points: str = Field(default="[]")
+    discovery_value_proposition: Optional[str] = None
+    discovery_excluded_categories: str = Field(default="[]")
+    discovery_language_preference: str = Field(default="EN")
+    discovery_notes: Optional[str] = None
+
     # ── ICP Settings ──────────────────────────────────────────────────────────
     icp_decision_maker_titles: str = Field(
         default='["CEO", "COO", "GM", "Owner", "Managing Director", "Operations Director"]'
@@ -291,6 +306,10 @@ class UserSettingsRecord(SQLModel, table=True):
     icp_min_fit_score: int = 45                 # leads below this are REJECTED
     icp_require_website: bool = False           # if True, filter leads without website
     icp_require_contact: bool = False           # if True, filter leads without email/phone
+    # Scoring weights (JSON object) — defaults match ICPScoringWeights
+    icp_scoring_weights: str = Field(
+        default='{"industry_match":30,"revenue_fit":20,"location":20,"digital_presence":15,"firmographic_quality":15}'
+    )
 
     # ── Outreach Settings (stub — Outreach Agent built later) ─────────────────
     outreach_sender_domain: Optional[str] = None
@@ -400,8 +419,62 @@ class MeetingHandoffRecord(SQLModel, table=True):
     notes: Optional[str] = None
     raw_response: str = ""
     status: str = "pending_info"                # pending_info | ready_for_scheduler | handed_off
+    # ── Meeting scheduler handoff fields ──────────────────────────────────────
+    assigned_to_name: Optional[str] = None      # person from our side who will take the meeting
+    assigned_to_email: Optional[str] = None
+    assigned_to_role: Optional[str] = None
+    preferred_meeting_platform: Optional[str] = None  # Zoom | Teams | Google Meet | Phone | In-person
+    confirmed_date: Optional[str] = None        # final confirmed ISO date
+    confirmed_time: Optional[str] = None        # final confirmed time
+    confirmed_timezone: Optional[str] = None
+    scheduler_notes: Optional[str] = None       # notes for the meeting scheduler agent
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+# ── Conversational Thread Memory ──────────────────────────────────────────────
+
+class ConversationThreadRecord(SQLModel, table=True):
+    """
+    One conversation thread per (user, lead, receiver_email).
+    Tracks turn count and rolling summary for LLM context management.
+    """
+    __tablename__ = "conversation_threads"
+    __table_args__ = (
+        UniqueConstraint("user_id", "lead_id", "receiver_email",
+                         name="uq_conv_thread_user_lead_email"),
+    )
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    user_id: str = Field(index=True, max_length=36)
+    lead_id: str = Field(index=True)
+    receiver_email: str
+    company_name: str = ""
+    turn_count: int = 0                         # total messages (ours + theirs)
+    summary: Optional[str] = None              # rolling LLM summary of older turns
+    summary_turn_count: int = 0                # which turn the summary covers up to
+    status: str = "active"                     # active | meeting_booked | closed_positive | closed_negative | lost
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class ConversationMessageRecord(SQLModel, table=True):
+    """
+    Append-only log of every message in a conversation thread.
+    direction: outbound (we sent) | inbound (lead replied)
+    """
+    __tablename__ = "conversation_messages"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    thread_id: str = Field(index=True)          # FK → ConversationThreadRecord.id
+    user_id: str = Field(index=True, max_length=36)
+    lead_id: str = Field(index=True)
+    direction: str                              # outbound | inbound
+    message_id: Optional[str] = Field(default=None, index=True)  # SMTP Message-ID
+    subject: str = ""
+    body: str
+    intent: Optional[str] = None               # positive | neutral | negative (inbound only)
+    sent_at: datetime = Field(default_factory=_utcnow)
 
 
 class SandboxTestInboxRecord(SQLModel, table=True):

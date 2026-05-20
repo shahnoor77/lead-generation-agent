@@ -919,3 +919,216 @@ async def get_meeting_handoffs(
             for r in rows
         ],
     }
+
+
+@router.get("/conversation-stats")
+async def get_conversation_stats(
+    current_user: UserRecord = Depends(get_current_user),
+) -> dict:
+    """
+    Outreach pipeline counts:
+    - followup: leads that have been sent at least one follow-up but no reply yet
+    - replied: leads that have replied (any intent)
+    - in_progress: active conversation threads (neutral replies, ongoing)
+    - meeting_scheduled: leads with a meeting booked
+    - won: leads marked WON
+    - lost: leads marked LOST
+    """
+    from app.storage.models import (
+        ConversationThreadRecord, LeadLifecycleRecord, PipelineRunRecord,
+    )
+
+    async with AsyncSessionLocal() as session:
+        # Get all run IDs for this user
+        run_result = await session.execute(
+            select(PipelineRunRecord.id).where(PipelineRunRecord.user_id == current_user.id)
+        )
+        run_ids = [r[0] for r in run_result.all()]
+
+        if not run_ids:
+            return {
+                "followup": 0, "replied": 0, "in_progress": 0,
+                "meeting_scheduled": 0, "won": 0, "lost": 0,
+                "total_contacted": 0,
+            }
+
+        # Lifecycle counts
+        lc_result = await session.execute(
+            select(LeadLifecycleRecord)
+            .where(LeadLifecycleRecord.pipeline_run_id.in_(run_ids))
+        )
+        lc_rows = list(lc_result.scalars().all())
+
+        # Follow-up count: leads with followup sends but no reply
+        followup_sent_result = await session.execute(
+            select(OutreachSentRecord.lead_id)
+            .where(OutreachSentRecord.user_id == current_user.id)
+            .where(OutreachSentRecord.campaign_stage == "followup")
+            .where(OutreachSentRecord.status == "sent")
+        )
+        followup_lead_ids = {r[0] for r in followup_sent_result.all()}
+
+        replied_lead_ids_result = await session.execute(
+            select(OutreachReplyRecord.lead_id)
+            .where(OutreachReplyRecord.user_id == current_user.id)
+        )
+        replied_lead_ids = {r[0] for r in replied_lead_ids_result.all()}
+
+        # Conversation threads
+        thread_result = await session.execute(
+            select(ConversationThreadRecord)
+            .where(ConversationThreadRecord.user_id == current_user.id)
+        )
+        threads = list(thread_result.scalars().all())
+
+    status_map: dict[str, int] = {}
+    for lc in lc_rows:
+        s = lc.current_status
+        status_map[s] = status_map.get(s, 0) + 1
+
+    # Leads with follow-ups but no reply yet
+    followup_no_reply = len(followup_lead_ids - replied_lead_ids)
+
+    # Active threads = threads with status "active" and turn_count > 1 (at least one reply)
+    in_progress = sum(1 for t in threads if t.status == "active" and t.turn_count > 1)
+
+    return {
+        "followup": followup_no_reply,
+        "replied": status_map.get("REPLIED", 0),
+        "in_progress": in_progress,
+        "meeting_scheduled": status_map.get("MEETING_SCHEDULED", 0),
+        "won": status_map.get("WON", 0),
+        "lost": status_map.get("LOST", 0),
+        "total_contacted": status_map.get("CONTACTED", 0),
+        "total_threads": len(threads),
+    }
+
+
+class UpdateMeetingHandoffRequest(BaseModel):
+    """Update meeting handoff with assigned person details for the meeting scheduler agent."""
+    assigned_to_name: Optional[str] = None
+    assigned_to_email: Optional[str] = None
+    assigned_to_role: Optional[str] = None
+    preferred_meeting_platform: Optional[str] = None
+    confirmed_date: Optional[str] = None
+    confirmed_time: Optional[str] = None
+    confirmed_timezone: Optional[str] = None
+    scheduler_notes: Optional[str] = None
+    status: Optional[str] = None   # pending_info | ready_for_scheduler | handed_off
+
+
+@router.patch("/meeting-handoffs/{handoff_id}")
+async def update_meeting_handoff(
+    handoff_id: int,
+    body: UpdateMeetingHandoffRequest,
+    current_user: UserRecord = Depends(get_current_user),
+) -> dict:
+    """
+    Update a meeting handoff with the assigned person and confirmed details.
+    Use this to set who from your team will take the meeting and confirm the time.
+    When status is set to 'ready_for_scheduler', the meeting scheduler agent can pick it up.
+    """
+    from app.storage.models import MeetingHandoffRecord
+    async with AsyncSessionLocal() as session:
+        handoff = await session.get(MeetingHandoffRecord, handoff_id)
+        if not handoff or handoff.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Meeting handoff not found")
+
+        if body.assigned_to_name is not None:
+            handoff.assigned_to_name = body.assigned_to_name
+        if body.assigned_to_email is not None:
+            handoff.assigned_to_email = body.assigned_to_email
+        if body.assigned_to_role is not None:
+            handoff.assigned_to_role = body.assigned_to_role
+        if body.preferred_meeting_platform is not None:
+            handoff.preferred_meeting_platform = body.preferred_meeting_platform
+        if body.confirmed_date is not None:
+            handoff.confirmed_date = body.confirmed_date
+        if body.confirmed_time is not None:
+            handoff.confirmed_time = body.confirmed_time
+        if body.confirmed_timezone is not None:
+            handoff.confirmed_timezone = body.confirmed_timezone
+        if body.scheduler_notes is not None:
+            handoff.scheduler_notes = body.scheduler_notes
+        if body.status is not None:
+            handoff.status = body.status
+
+        handoff.updated_at = datetime.utcnow()
+        session.add(handoff)
+        await session.commit()
+        await session.refresh(handoff)
+
+    # If marked ready_for_scheduler, also mark lead as WON
+    if body.status == "ready_for_scheduler":
+        from app.modules.outreach.agent import _set_lifecycle_status
+        from app.schemas.lifecycle import LeadLifecycleStatus
+        await _set_lifecycle_status(
+            handoff.lead_id, LeadLifecycleStatus.WON, "meeting_handoff",
+            notes=f"Meeting confirmed. Assigned to: {handoff.assigned_to_name}. "
+                  f"Date: {handoff.confirmed_date} {handoff.confirmed_time}",
+        )
+
+    return {
+        "id": handoff.id,
+        "lead_id": handoff.lead_id,
+        "status": handoff.status,
+        "assigned_to_name": handoff.assigned_to_name,
+        "assigned_to_email": handoff.assigned_to_email,
+        "assigned_to_role": handoff.assigned_to_role,
+        "preferred_meeting_platform": handoff.preferred_meeting_platform,
+        "confirmed_date": handoff.confirmed_date,
+        "confirmed_time": handoff.confirmed_time,
+        "confirmed_timezone": handoff.confirmed_timezone,
+        "scheduler_notes": handoff.scheduler_notes,
+        "updated_at": handoff.updated_at.isoformat(),
+    }
+
+
+@router.get("/conversations/{lead_id}")
+async def get_lead_conversation(
+    lead_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+) -> dict:
+    """Get the full conversation thread for a lead."""
+    from app.storage.models import ConversationThreadRecord, ConversationMessageRecord
+    async with AsyncSessionLocal() as session:
+        thread_result = await session.execute(
+            select(ConversationThreadRecord)
+            .where(ConversationThreadRecord.user_id == current_user.id)
+            .where(ConversationThreadRecord.lead_id == lead_id)
+        )
+        thread = thread_result.scalar_one_or_none()
+        if not thread:
+            return {"thread": None, "messages": []}
+
+        msg_result = await session.execute(
+            select(ConversationMessageRecord)
+            .where(ConversationMessageRecord.thread_id == thread.id)
+            .order_by(ConversationMessageRecord.sent_at.asc())
+        )
+        messages = list(msg_result.scalars().all())
+
+    return {
+        "thread": {
+            "id": thread.id,
+            "lead_id": thread.lead_id,
+            "receiver_email": thread.receiver_email,
+            "company_name": thread.company_name,
+            "turn_count": thread.turn_count,
+            "status": thread.status,
+            "summary": thread.summary,
+            "created_at": thread.created_at.isoformat(),
+            "updated_at": thread.updated_at.isoformat(),
+        },
+        "messages": [
+            {
+                "id": m.id,
+                "direction": m.direction,
+                "subject": m.subject,
+                "body": m.body,
+                "intent": m.intent,
+                "sent_at": m.sent_at.isoformat(),
+            }
+            for m in messages
+        ],
+    }

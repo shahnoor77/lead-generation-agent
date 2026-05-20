@@ -1,0 +1,21 @@
+You are summarizing an ongoing B2B sales email conversation for use as context in future AI-generated replies.
+
+## CONVERSATION SO FAR
+The following is the email thread between {sender_name} at {sender_company} and {receiver_name} at {company_name}:
+
+{conversation_turns}
+
+## TASK
+Write a concise factual summary (3-5 sentences) that captures:
+1. What was offered / proposed by the sender
+2. Key points or questions raised by the prospect
+3. The current state of the conversation (e.g., prospect asked for pricing, prospect showed interest in a call, prospect raised an objection about timing)
+4. Any specific details mentioned (dates, names, products, concerns)
+
+## RULES
+- Be factual and neutral — do not editorialize
+- Do not include greetings or sign-offs
+- Write in third person (e.g., "The prospect asked...", "The sender proposed...")
+- Keep it under 150 words
+
+Return ONLY the summary text, no JSON, no markdown.

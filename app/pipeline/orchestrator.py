@@ -137,7 +137,18 @@ class PipelineOrchestrator:
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(pipeline_run_id=run_id)
 
-        passlist, rejectlist = self._filter.apply(enriched_leads, context, seen_ids)
+        # Load user ICP settings for filter + ICP scoring
+        icp_settings = None
+        if user_id:
+            try:
+                from app.services.settings import get_settings as _get_settings
+                _us = await _get_settings(user_id)
+                icp_settings = _us.icp
+            except Exception:
+                pass
+
+        passlist, rejectlist = self._filter.apply(enriched_leads, context, seen_ids,
+                                                   icp_settings=icp_settings)
         result.total_filtered_out = len(rejectlist)
         result.filtered_leads = rejectlist
 
@@ -154,7 +165,7 @@ class PipelineOrchestrator:
 
             # Stage 4: ICP Evaluation
             try:
-                evaluated = await self._icp.evaluate(enriched, context)
+                evaluated = await self._icp.evaluate(enriched, context, user_id=user_id)
                 result.total_evaluated += 1
                 result.evaluated_leads.append(evaluated)
                 await self._repo.save_evaluated(evaluated)

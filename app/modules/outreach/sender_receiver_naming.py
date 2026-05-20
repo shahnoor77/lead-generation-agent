@@ -20,37 +20,18 @@ class ReceiverOutreachPlan:
 def plan_receiver_outreach(enriched: EnrichedLead, company_name: str) -> ReceiverOutreachPlan:
     """
     Returns a professional greeting based on available contact info.
-    
-    Priority:
-    1. If contact_name + contact_title both present → "Dear {Title} {LastName},"
-    2. If contact_name only → "Dear {FirstName},"
-    3. Otherwise → "Dear {Company} Team," or "To Whom It May Concern,"
-    
-    NO auto-detection from email local parts or unreliable signals.
+    Uses key_people[0] as the contact name if available.
     """
-    
-    # Case 1: Full contact name + title
-    if enriched.contact_name and enriched.contact_title:
-        # Extract last name (last word of contact_name)
-        name_parts = enriched.contact_name.strip().split()
-        last_name = name_parts[-1] if name_parts else enriched.contact_name
-        title = enriched.contact_title.strip()
-        
-        opener = f"Dear {title} {last_name},"
-        instr = (
-            f"Opening line: Use exactly this greeting: \"{opener}\"\n"
-            f"Do not change or paraphrase it."
-        )
-        return ReceiverOutreachPlan(
-            opener_for_fallback=opener,
-            opening_instruction=instr,
-        )
-    
-    # Case 2: Contact name only (no title)
-    if enriched.contact_name:
-        name_parts = enriched.contact_name.strip().split()
-        first_name = name_parts[0] if name_parts else enriched.contact_name
-        
+    # Try to extract a name from key_people
+    contact_name: str | None = None
+    if enriched.key_people:
+        raw = enriched.key_people[0].strip()
+        # key_people entries may be "Name - Title" or just "Name"
+        contact_name = raw.split(" - ")[0].split(" — ")[0].strip() or None
+
+    if contact_name:
+        name_parts = contact_name.split()
+        first_name = name_parts[0] if name_parts else contact_name
         opener = f"Dear {first_name},"
         instr = (
             f"Opening line: Use exactly this greeting: \"{opener}\"\n"
@@ -60,9 +41,8 @@ def plan_receiver_outreach(enriched: EnrichedLead, company_name: str) -> Receive
             opener_for_fallback=opener,
             opening_instruction=instr,
         )
-    
-    # Case 3: No contact name — use company or generic
-    # Prefer company team over "To Whom It May Concern"
+
+    # No contact name — use company or generic
     if company_name and company_name.strip():
         opener = f"Dear {company_name} Team,"
         instr = (
@@ -71,14 +51,13 @@ def plan_receiver_outreach(enriched: EnrichedLead, company_name: str) -> Receive
             f"Do not change or paraphrase it."
         )
     else:
-        # Fallback if even company_name is missing
         opener = "To Whom It May Concern,"
         instr = (
             f"Opening line: Use exactly this greeting: \"{opener}\"\n"
             f"This is a formal, professional opening when no contact name is available.\n"
             f"Do not change or paraphrase it."
         )
-    
+
     return ReceiverOutreachPlan(
         opener_for_fallback=opener,
         opening_instruction=instr,

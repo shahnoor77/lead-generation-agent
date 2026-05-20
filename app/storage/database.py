@@ -147,6 +147,34 @@ async def init_db() -> None:
         await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS outreach_reply_check_enabled BOOLEAN DEFAULT TRUE"))
         await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS outreach_followup_max_attempts INTEGER DEFAULT 4"))
         await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS outreach_followup_interval_hours INTEGER DEFAULT 48"))
+        # Lead Discovery Settings columns
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_location VARCHAR DEFAULT 'Saudi Arabia'"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_country VARCHAR"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_area VARCHAR"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_domain VARCHAR"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_value_proposition VARCHAR"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_language_preference VARCHAR DEFAULT 'EN'"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_notes VARCHAR"))
+        # JSON array columns for discovery — use UPDATE to avoid DDL bind param issues
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_industries VARCHAR"))
+        await conn.execute(text("UPDATE user_settings SET discovery_industries = :v WHERE discovery_industries IS NULL"),
+                           {"v": '["manufacturing","logistics","construction","retail","healthcare"]'})
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_our_services VARCHAR"))
+        await conn.execute(text("UPDATE user_settings SET discovery_our_services = '[]' WHERE discovery_our_services IS NULL"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_pain_points VARCHAR"))
+        await conn.execute(text("UPDATE user_settings SET discovery_pain_points = '[]' WHERE discovery_pain_points IS NULL"))
+        await conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS discovery_excluded_categories VARCHAR"))
+        await conn.execute(text("UPDATE user_settings SET discovery_excluded_categories = '[]' WHERE discovery_excluded_categories IS NULL"))
+        # Add icp_scoring_weights column — use literal() to bypass SQLAlchemy bind-param parsing of JSON
+        from sqlalchemy import literal_column
+        await conn.execute(text(
+            "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS icp_scoring_weights VARCHAR"
+        ))
+        _w = '{"industry_match":30,"revenue_fit":20,"location":20,"digital_presence":15,"firmographic_quality":15}'
+        await conn.execute(
+            text("UPDATE user_settings SET icp_scoring_weights = :w WHERE icp_scoring_weights IS NULL"),
+            {"w": _w},
+        )
         await conn.execute(text("ALTER TABLE sender_email_accounts ADD COLUMN IF NOT EXISTS imap_host VARCHAR"))
         await conn.execute(text("ALTER TABLE sender_email_accounts ADD COLUMN IF NOT EXISTS imap_port INTEGER DEFAULT 993"))
         await conn.execute(text("ALTER TABLE sender_email_accounts ADD COLUMN IF NOT EXISTS imap_username VARCHAR"))
@@ -180,5 +208,58 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS ix_webhook_subscriptions_user_id "
             "ON webhook_subscriptions (user_id)"
         ))
+        # ── Conversation thread tables ─────────────────────────────────────────
+        await conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS conversation_threads ("
+            "id VARCHAR PRIMARY KEY, "
+            "user_id VARCHAR(36) NOT NULL, "
+            "lead_id VARCHAR NOT NULL, "
+            "receiver_email VARCHAR NOT NULL, "
+            "company_name VARCHAR DEFAULT '', "
+            "turn_count INTEGER DEFAULT 0, "
+            "summary VARCHAR, "
+            "summary_turn_count INTEGER DEFAULT 0, "
+            "status VARCHAR DEFAULT 'active', "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_conv_thread_user_lead_email "
+            "ON conversation_threads (user_id, lead_id, receiver_email)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_conv_threads_user_id ON conversation_threads (user_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_conv_threads_lead_id ON conversation_threads (lead_id)"
+        ))
+        await conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS conversation_messages ("
+            "id SERIAL PRIMARY KEY, "
+            "thread_id VARCHAR NOT NULL, "
+            "user_id VARCHAR(36) NOT NULL, "
+            "lead_id VARCHAR NOT NULL, "
+            "direction VARCHAR NOT NULL, "
+            "message_id VARCHAR, "
+            "subject VARCHAR DEFAULT '', "
+            "body VARCHAR NOT NULL, "
+            "intent VARCHAR, "
+            "sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_conv_messages_thread_id ON conversation_messages (thread_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_conv_messages_lead_id ON conversation_messages (lead_id)"
+        ))
+        # ── Extended meeting_handoffs columns ──────────────────────────────────
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS assigned_to_name VARCHAR"))
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS assigned_to_email VARCHAR"))
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS assigned_to_role VARCHAR"))
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS preferred_meeting_platform VARCHAR"))
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS confirmed_date VARCHAR"))
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS confirmed_time VARCHAR"))
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS confirmed_timezone VARCHAR"))
+        await conn.execute(text("ALTER TABLE meeting_handoffs ADD COLUMN IF NOT EXISTS scheduler_notes VARCHAR"))
         await _migrate_users_to_uuid(conn)
 
